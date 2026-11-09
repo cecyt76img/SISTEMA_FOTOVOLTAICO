@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Streamlit Premium (100% Íntegra y Sin Omitir Nada)
+# Sistema Integral FV - Versión Streamlit Premium (100% Íntegra y Verificada)
 # ==============================================================================
 
 import os
@@ -175,7 +175,9 @@ class GestorSistemaFV:
         self.guardar_equipos()
 
 @st.cache_resource
-init_db = lambda: GestorSistemaFV()
+def init_db():
+    return GestorSistemaFV()
+
 db = init_db()
 
 # ==============================================================================
