@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Monitoreo Limpio y Persistente
+# Sistema Integral FV - Versión Corregida Monitoreo HTML y Cierre Limpio
 # ==============================================================================
 
 import os
@@ -166,7 +166,6 @@ class GestorSistemaFV:
             self.usuarios[usr]["active_sessions"] = sessions
             self.usuarios[usr]["sesiones"] = len(sessions)
             
-            # Forzar guardado inmediato al archivo físico
             with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: 
                 json.dump(self.usuarios, f, indent=4)
                 
@@ -404,15 +403,18 @@ else:
         st.session_state.rol = ""
         st.session_state.session_token = None
 
+        # Pantalla limpia de aviso sin errores
         st.markdown("""
-            <div style="max-width: 500px; margin: 100px auto; padding: 30px; background: #1e293b; border: 1px solid #38bdf8; border-radius: 12px; text-align: center; color: #f8fafc;">
-                <h3 style="color: #38bdf8; margin-bottom: 15px;">🔒 Sesión Finalizada</h3>
-                <p style="color: #94a3b8; font-size: 16px;">Tu sesión ha sido cerrada o revocada por el administrador.</p>
+            <div style="max-width: 500px; margin: 100px auto; padding: 40px; background: #1e293b; border: 1px solid #38bdf8; border-radius: 12px; text-align: center; color: #f8fafc; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                <h2 style="color: #38bdf8; margin-bottom: 20px;">🔒 Sesión Finalizada</h2>
+                <p style="color: #94a3b8; font-size: 18px; margin-bottom: 25px;">Tu sesión ha sido cerrada o revocada por el administrador.</p>
             </div>
         """, unsafe_allow_html=True)
         
-        if st.button("🔄 Volver a Iniciar Sesión"):
-            st.rerun()
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 2, 1])
+        with col_btn2:
+            if st.button("🔄 Volver a Iniciar Sesión", type="primary"):
+                st.rerun()
         st.stop()
 
     usr_data = usr_info
@@ -681,17 +683,17 @@ else:
 
             db.usuarios = db._cargar_usuarios()
             
-            # Generación de tarjetas visuales HTML en lugar de tabla plana para lograr barras completas verdes/rojas sin código basura
+            # Tabla estilizada HTML con colores dinámicos completos y diseño limpio en modo oscuro
             html_monitoreo = """
-            <div style="background: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px;">
+            <div style="background: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px; overflow-x: auto;">
                 <table style="width: 100%; border-collapse: collapse; color: #f8fafc; font-family: sans-serif;">
                     <thead>
-                        <tr style="border-bottom: 2px solid #475569; text-align: left;">
-                            <th style="padding: 10px;">Usuario</th>
-                            <th style="padding: 10px;">Rol</th>
-                            <th style="padding: 10px;">Sesiones Activas</th>
-                            <th style="padding: 10px;">Folio Actual</th>
-                            <th style="padding: 10px;">Estado</th>
+                        <tr style="border-bottom: 2px solid #475569; text-align: left; background-color: #0f172a;">
+                            <th style="padding: 12px;">Usuario</th>
+                            <th style="padding: 12px;">Rol</th>
+                            <th style="padding: 12px;">Sesiones Activas</th>
+                            <th style="padding: 12px;">Folio Actual</th>
+                            <th style="padding: 12px;">Estado</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -701,27 +703,27 @@ else:
                 num_sesiones = len(d.get('active_sessions', [])) if isinstance(d, dict) else 0
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
-                # Asignación de colores para toda la barra según estado
+                # Colores completos para la fila: Verde si conectado, Rojo si bloqueado, Oscuro si inactivo
                 if not is_activo:
-                    bg_color = "#7f1d1d" # Rojo oscuro
+                    bg_color = "#7f1d1d" 
                     txt_color = "#fecaca"
                     estado_txt = "BLOQUEADO / BAJA"
                 elif num_sesiones > 0:
-                    bg_color = "#064e3b" # Verde oscuro
+                    bg_color = "#064e3b" 
                     txt_color = "#a7f3d0"
                     estado_txt = "CONECTADO EN VIVO"
                 else:
-                    bg_color = "#0f172a" # Negro / Gris oscuro base
+                    bg_color = "#0f172a" 
                     txt_color = "#94a3b8"
                     estado_txt = "INACTIVO"
 
                 html_monitoreo += f"""
                         <tr style="background-color: {bg_color}; color: {txt_color}; border-bottom: 1px solid #334155;">
-                            <td style="padding: 10px; font-weight: bold;">{u}</td>
-                            <td style="padding: 10px;">{d.get('rol', 'usuario')}</td>
-                            <td style="padding: 10px;">{num_sesiones}/3</td>
-                            <td style="padding: 10px;">{d.get('contador_folios', 1):03d}</td>
-                            <td style="padding: 10px; font-weight: bold;">{estado_txt}</td>
+                            <td style="padding: 12px; font-weight: bold;">{u}</td>
+                            <td style="padding: 12px;">{d.get('rol', 'usuario')}</td>
+                            <td style="padding: 12px;">{num_sesiones}/3</td>
+                            <td style="padding: 12px;">{d.get('contador_folios', 1):03d}</td>
+                            <td style="padding: 12px; font-weight: bold;">{estado_txt}</td>
                         </tr>
                 """
             
