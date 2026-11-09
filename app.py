@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Corregida Monitoreo HTML y Cierre Limpio
+# Sistema Integral FV - Versión Final Corregida (HTML Nativo y Cierre Seguro)
 # ==============================================================================
 
 import os
@@ -14,6 +14,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ReportLab - PDF y Vectorial
 from reportlab.lib.pagesizes import letter
@@ -159,7 +160,6 @@ class GestorSistemaFV:
             sessions = self.usuarios[usr]["active_sessions"]
             sessions.append(token)
             
-            # FIFO: Máximo 3 dispositivos activos, expulsa al más antiguo automáticamente
             if len(sessions) > 3:
                 sessions.pop(0) 
                 
@@ -394,7 +394,8 @@ else:
 
     if not cuenta_activa or (active_tokens and st.session_state.session_token not in active_tokens):
         try:
-            db.logout_usuario(usuario_actual, st.session_state.session_token)
+            if usuario_actual and st.session_state.session_token:
+                db.logout_usuario(usuario_actual, st.session_state.session_token)
         except:
             pass
 
@@ -403,7 +404,7 @@ else:
         st.session_state.rol = ""
         st.session_state.session_token = None
 
-        # Pantalla limpia de aviso sin errores
+        # Pantalla limpia exclusiva de aviso sin errores rojos
         st.markdown("""
             <div style="max-width: 500px; margin: 100px auto; padding: 40px; background: #1e293b; border: 1px solid #38bdf8; border-radius: 12px; text-align: center; color: #f8fafc; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
                 <h2 style="color: #38bdf8; margin-bottom: 20px;">🔒 Sesión Finalizada</h2>
@@ -421,7 +422,11 @@ else:
 
     st.sidebar.markdown(f"### ☀️ CECyT 7\n**Usuario:** {usuario_actual.upper()}\n**Rol:** {rol_usuario.upper()}")
     if st.sidebar.button("🚪 Cerrar Sesión", type="primary"):
-        db.logout_usuario(usuario_actual, st.session_state.session_token)
+        try:
+            if usuario_actual and st.session_state.session_token:
+                db.logout_usuario(usuario_actual, st.session_state.session_token)
+        except:
+            pass
         st.session_state.logged_in = False
         st.session_state.usuario = ""
         st.session_state.rol = ""
@@ -683,27 +688,13 @@ else:
 
             db.usuarios = db._cargar_usuarios()
             
-            # Tabla estilizada HTML con colores dinámicos completos y diseño limpio en modo oscuro
-            html_monitoreo = """
-            <div style="background: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px; overflow-x: auto;">
-                <table style="width: 100%; border-collapse: collapse; color: #f8fafc; font-family: sans-serif;">
-                    <thead>
-                        <tr style="border-bottom: 2px solid #475569; text-align: left; background-color: #0f172a;">
-                            <th style="padding: 12px;">Usuario</th>
-                            <th style="padding: 12px;">Rol</th>
-                            <th style="padding: 12px;">Sesiones Activas</th>
-                            <th style="padding: 12px;">Folio Actual</th>
-                            <th style="padding: 12px;">Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-            """
-            
+            # Construcción segura de la tabla renderizada mediante componentes HTML dedicados
+            filas_html = ""
             for u, d in db.usuarios.items():
                 num_sesiones = len(d.get('active_sessions', [])) if isinstance(d, dict) else 0
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
-                # Colores completos para la fila: Verde si conectado, Rojo si bloqueado, Oscuro si inactivo
+                # Colores exactos: Verde si conectado, Rojo si bloqueado, Oscuro si inactivo
                 if not is_activo:
                     bg_color = "#7f1d1d" 
                     txt_color = "#fecaca"
@@ -717,23 +708,37 @@ else:
                     txt_color = "#94a3b8"
                     estado_txt = "INACTIVO"
 
-                html_monitoreo += f"""
-                        <tr style="background-color: {bg_color}; color: {txt_color}; border-bottom: 1px solid #334155;">
-                            <td style="padding: 12px; font-weight: bold;">{u}</td>
-                            <td style="padding: 12px;">{d.get('rol', 'usuario')}</td>
-                            <td style="padding: 12px;">{num_sesiones}/3</td>
-                            <td style="padding: 12px;">{d.get('contador_folios', 1):03d}</td>
-                            <td style="padding: 12px; font-weight: bold;">{estado_txt}</td>
-                        </tr>
+                filas_html += f"""
+                    <tr style="background-color: {bg_color}; color: {txt_color}; border-bottom: 1px solid #334155;">
+                        <td style="padding: 12px; font-weight: bold;">{u}</td>
+                        <td style="padding: 12px;">{d.get('rol', 'usuario')}</td>
+                        <td style="padding: 12px;">{num_sesiones}/3</td>
+                        <td style="padding: 12px;">{d.get('contador_folios', 1):03d}</td>
+                        <td style="padding: 12px; font-weight: bold;">{estado_txt}</td>
+                    </tr>
                 """
-            
-            html_monitoreo += """
+
+            html_monitoreo = f"""
+            <div style="background: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px; overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; color: #f8fafc; font-family: sans-serif;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid #475569; text-align: left; background-color: #0f172a;">
+                            <th style="padding: 12px;">Usuario</th>
+                            <th style="padding: 12px;">Rol</th>
+                            <th style="padding: 12px;">Sesiones Activas</th>
+                            <th style="padding: 12px;">Folio Actual</th>
+                            <th style="padding: 12px;">Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filas_html}
                     </tbody>
                 </table>
             </div>
             """
             
-            st.markdown(html_monitoreo, unsafe_allow_html=True)
+            # Renderizado directo limpio utilizando components.html para evitar texto plano
+            components.html(html_monitoreo, height=220, scrolling=True)
 
             st.markdown("---")
             st.subheader("➕ Crear Nuevo Perfil de Usuario")
