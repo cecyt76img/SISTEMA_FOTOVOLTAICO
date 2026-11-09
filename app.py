@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Definitiva 100% Corregida
+# Sistema Integral FV - Versión Definitiva 100% Estable y Corregida
 # ==============================================================================
 
 import os
@@ -152,7 +152,7 @@ class GestorSistemaFV:
         try:
             self.usuarios = self._cargar_usuarios()
             if usr not in self.usuarios: return token
-            if not self.usuarios[usr].get("activo", True): return None
+            if not self.usuarios[usr].get("activo", True): return token
             
             if "active_sessions" not in self.usuarios[usr] or not isinstance(self.usuarios[usr]["active_sessions"], list):
                 self.usuarios[usr]["active_sessions"] = []
@@ -350,10 +350,10 @@ if 'logged_in' not in st.session_state:
     st.session_state.session_token = None
 
 params = st.query_params
-url_user = params.get("user", "")
-url_token = params.get("token", "")
+url_user = str(params.get("user", "")).strip()
+url_token = str(params.get("token", "")).strip()
 
-if not st.session_state.logged_in and url_user and url_token:
+if not st.session_state.logged_in and url_user and url_token and url_token != "False" and url_token != "None":
     db.usuarios = db._cargar_usuarios()
     if url_user in db.usuarios and db.usuarios[url_user].get("activo", True):
         active_sessions = db.usuarios[url_user].get("active_sessions", [])
@@ -712,6 +712,7 @@ else:
                 num_sesiones = len(sessions)
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
+                # Comprobación estricta para marcar en verde la fila del usuario realmente conectado actual o activo con sesiones
                 if not is_activo:
                     bg_color = "#7f1d1d" 
                     txt_color = "#fecaca"
@@ -719,7 +720,7 @@ else:
                 elif num_sesiones > 0:
                     bg_color = "#064e3b" # Verde brillante en vivo
                     txt_color = "#a7f3d0"
-                    estado_txt = "CONECTADO EN VIVO"
+                    estado_txt = f"CONECTADO EN VIVO ({num_sesiones})"
                 else:
                     bg_color = "#0f172a" 
                     txt_color = "#94a3b8"
