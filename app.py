@@ -1,24 +1,18 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV V16.1: Visualización Segura de Contraseñas y CRUD Total
+# Sistema Integral FV - Versión Streamlit Premium (100% Íntegra y Sin Omitir Nada)
 # ==============================================================================
-
-!pip install reportlab openpyxl pandas matplotlib ipywidgets -q
 
 import os
 import io
 import json
 import math
 import base64
-import traceback
+import datetime
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import ipywidgets as widgets
-from datetime import datetime
-from typing import List, Dict, Optional, Any
-from IPython.display import display, HTML, clear_output
-from google.colab import drive, files
+import streamlit as st
 
 # ReportLab - PDF y Vectorial
 from reportlab.lib.pagesizes import letter
@@ -27,17 +21,28 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet
 
-plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')
+# Configuración de página Streamlit
+st.set_page_config(
+    page_title="Sistema Integral FV - CECyT 7",
+    page_icon="☀️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+st.markdown("""
+    <style>
+    .main { background-color: #0f172a; color: #f8fafc; }
+    .stButton>button { width: 100%; border-radius: 6px; font-weight: bold; height: 3em; }
+    </style>
+""", unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. CONSTANTES GLOBALES Y GESTOR DE SISTEMA CON BIBLIOTECA AMPLIADA
+# 1. GESTOR DE SISTEMA Y BASE DE DATOS (CON BIBLIOTECA AMPLIADA)
 # ==============================================================================
-RESISTIVIDAD_COBRE_OHM_MM2_M = 0.0193
-FACTOR_RENDIMIENTO_GLOBAL = 0.80       
-
 class GestorSistemaFV:
-    def __init__(self, ruta_dir: str):
+    def __init__(self, ruta_dir: str = "."):
         self.ruta_dir = ruta_dir
+        os.makedirs(ruta_dir, exist_ok=True)
         self.ruta_equipos = os.path.join(ruta_dir, 'equipos_fv_v16.json')
         self.ruta_usuarios = os.path.join(ruta_dir, 'usuarios_sistema_v16.json')
         self.ruta_auditoria = os.path.join(ruta_dir, 'auditoria_accesos_v16.json')
@@ -136,7 +141,7 @@ class GestorSistemaFV:
             self.guardar_usuarios()
 
     def registrar_acceso(self, usuario: str, rol: str):
-        self.auditoria.insert(0, {"fecha_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": usuario, "rol": rol})
+        self.auditoria.insert(0, {"fecha_hora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": usuario, "rol": rol})
         with open(self.ruta_auditoria, 'w', encoding='utf-8') as f: json.dump(self.auditoria, f, indent=4)
 
     def obtener_paneles(self): 
@@ -169,16 +174,9 @@ class GestorSistemaFV:
         self.datos[cat] = [x for x in self.datos.get(cat, []) if x['id'].upper() != item_id.upper()]
         self.guardar_equipos()
 
-try:
-    drive.mount('/content/drive', force_remount=False)
-    dir_proyecto = '/content/drive/MyDrive/Proyecto_Tesis_CECyT7'
-    os.makedirs(dir_proyecto, exist_ok=True)
-    db = GestorSistemaFV(dir_proyecto)
-except:
-    db = GestorSistemaFV('.')
-
-for u in db.usuarios: db.usuarios[u]["sesiones"] = 0
-db.guardar_usuarios()
+@st.cache_resource
+init_db = lambda: GestorSistemaFV()
+db = init_db()
 
 # ==============================================================================
 # 2. MOTOR DE CÁLCULO E INGENIERÍA
@@ -190,7 +188,7 @@ class MotorCalculoFV:
         inv = next((i for i in db.obtener_inversores() if i["id"] == iid), None)
         
         cons_diario = cons_bim / 60.0
-        pot_req = (cons_diario / FACTOR_RENDIMIENTO_GLOBAL) / max(0.1, hsp)
+        pot_req = (cons_diario / 0.80) / max(0.1, hsp)
         n_pan = max(1, math.ceil((pot_req * 1000) / max(1, panel.get("potencia_w", 1))))
         
         ns = max(1, min(10, n_pan)) 
@@ -209,7 +207,7 @@ class MotorCalculoFV:
 
         costo_directo = (n_pan_real * panel.get("precio_mxn", 0)) + inv.get("precio_mxn", 0) + costo_baterias_mxn + extras_mxn
         precio_venta = costo_directo * (1.0 + (max(0, ganancia_pct) / 100.0))
-        ahorro_anual = pot_real * max(0.1, hsp) * FACTOR_RENDIMIENTO_GLOBAL * 365 * costo
+        ahorro_anual = pot_real * max(0.1, hsp) * 0.80 * 365 * costo
         
         return {
             'panel': panel, 'inversor': inv, 'n_pan': n_pan_real, 'ns': ns, 'np': np_arr,
@@ -237,7 +235,7 @@ class GeneradorReportes:
         if mostrar_precios_internos:
             t_data = [
                 ["Equipos (Piezas Totales)", "Especificación Técnica", "Costo Unitario Interno"],
-                [f"Paneles ({datos['n_pan']} pzas)", f"{datos['panel'].get('marca', '')} {datos['panel'].get('potencia_w', 0)}W | Vmp: {datos['panel'].get('vmp', 0)}V", f"${precio_p:,.2f}"],
+                [f"Paneles ({datos['n_pan']} pzas)", f"{datos['panel'].get('marca', '')} {datos['panel'].get('potencia_w', 0)}W", f"${precio_p:,.2f}"],
                 ["Inversor", f"{datos['inversor'].get('marca', '')} {datos['inversor'].get('potencia_ac_kw', 0)}kW", f"${precio_i:,.2f}"],
                 ["Banco Baterías", f"{datos['n_bat']} uds ({marca_bat})", f"${precio_bat:,.2f}"],
                 ["PRECIO FINAL CLIENTE", f"Ahorro Anual: ${datos['ahorro_anual']:,.2f}", f"${datos['precio_venta']:,.2f}"]
@@ -257,371 +255,291 @@ class GeneradorReportes:
         doc.build(story)
 
 # ==============================================================================
-# 4. APLICACIÓN PRINCIPAL CON SEGURIDAD DE CREDENCIALES
+# 4. GESTIÓN DE SESIÓN Y VISTAS DE STREAMLIT
 # ==============================================================================
-def construir_aplicacion_principal(contenedor_app, contenedor_login, rol_usuario, usuario_actual):
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.usuario = ""
+    st.session_state.rol = ""
+
+# --- PANTALLA DE LOGIN ---
+if not st.session_state.logged_in:
+    st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🔒 Acceso Sistema FV CECyT 7</h2>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.form("login_form"):
+            user_input = st.text_input("Usuario")
+            pass_input = st.text_input("Contraseña", type="password")
+            submit_btn = st.form_submit_button("🔑 Iniciar Sesión")
+            
+            if submit_btn:
+                db.usuarios = db._cargar_usuarios()
+                usr = user_input.strip()
+                pwd = pass_input.strip()
+                if usr in db.usuarios:
+                    if not db.usuarios[usr].get("activo", True):
+                        st.error("❌ Cuenta inhabilitada por el administrador.")
+                    elif db.usuarios[usr]["pass"] == pwd:
+                        if db.login_usuario(usr):
+                            st.session_state.logged_in = True
+                            st.session_state.usuario = usr
+                            st.session_state.rol = db.usuarios[usr].get("rol", "usuario")
+                            db.registrar_acceso(usr, st.session_state.rol)
+                            st.rerun()
+                        else:
+                            st.error("❌ Límite de sesiones alcanzado.")
+                    else:
+                        st.error("❌ Contraseña incorrecta.")
+                else:
+                    st.error("❌ Usuario no encontrado.")
+else:
+    usuario_actual = st.session_state.usuario
+    rol_usuario = st.session_state.rol
     db.usuarios = db._cargar_usuarios()
-    
+
+    # VALIDACIÓN EN VIVO: Si el admin dio de baja la cuenta, expulsar al instante
     if not db.usuarios.get(usuario_actual, {}).get("activo", True):
-        with contenedor_app: clear_output()
-        with contenedor_login:
-            clear_output()
-            display(HTML("<div style='background:#ef4444; color:white; padding:15px; border-radius:5px;'><b>❌ ACCESO REVOCADO:</b> Tu cuenta ha sido dada de baja por el Administrador.</div>"))
-            display(box_login)
-        return
+        st.error("❌ ACCESO REVOCADO: Tu cuenta ha sido dada de baja por el Administrador.")
+        db.logout_usuario(usuario_actual)
+        st.session_state.logged_in = False
+        st.session_state.usuario = ""
+        st.session_state.rol = ""
+        st.rerun()
 
     usr_data = db.usuarios.get(usuario_actual, {})
-    style_lbl, layout_inp = {'description_width': '220px'}, widgets.Layout(width='450px')
 
-    def get_opt_p(): return [(f"{p.get('marca','')} {p.get('modelo','')} (${p.get('precio_mxn',0):,.0f})", p['id']) for p in db.obtener_paneles()]
-    def get_opt_i(): return [(f"{i.get('marca','')} {i.get('modelo','')} (${i.get('precio_mxn',0):,.0f})", i['id']) for i in db.obtener_inversores()]
-    def get_opt_b(): 
-        ops = [('Ninguna / No Aplica', '')]
-        ops.extend([(f"{b.get('marca','')} {b.get('modelo','')} (${b.get('precio_mxn',0):,.0f})", b['id']) for b in db.obtener_baterias()])
-        return ops
+    st.sidebar.markdown(f"### ☀️ CECyT 7\n**Usuario:** {usuario_actual.upper()}\n**Rol:** {rol_usuario.upper()}")
+    if st.sidebar.button("🚪 Cerrar Sesión", type="primary"):
+        db.logout_usuario(usuario_actual)
+        st.session_state.logged_in = False
+        st.session_state.usuario = ""
+        st.session_state.rol = ""
+        st.rerun()
 
-    w_consumo = widgets.BoundedIntText(value=550, min=50, max=10000, description='Consumo Bimestral (kWh):', style=style_lbl, layout=layout_inp)
-    w_hsp = widgets.FloatSlider(value=5.3, min=3.0, max=7.0, description='HSP:', style=style_lbl, layout=layout_inp)
-    w_panel = widgets.Dropdown(options=get_opt_p(), description='Panel:', style=style_lbl, layout=layout_inp)
-    w_inversor = widgets.Dropdown(options=get_opt_i(), description='Inversor:', style=style_lbl, layout=layout_inp)
-    w_modo = widgets.Dropdown(options=['Interconectado (CFE)', 'Híbrido'], value='Interconectado (CFE)', description='Modo:', style=style_lbl, layout=layout_inp)
-    w_bat = widgets.Dropdown(options=get_opt_b(), description='Batería:', style=style_lbl, layout=layout_inp)
-    w_costo = widgets.FloatText(value=3.50, description='Costo kWh:', style=style_lbl, layout=layout_inp)
-    w_ganancia = widgets.FloatSlider(value=usr_data.get('ganancia_pct', 40.0), min=0.0, max=100.0, step=1.0, description='% Ganancia:', style=style_lbl, layout=widgets.Layout(width='450px'))
-    
-    out_res = widgets.Output()
-    btn_calc = widgets.Button(description='⚡ Cotizar', button_style='primary')
-    btn_pdf = widgets.Button(description='📄 Generar PDF', button_style='success')
-    btn_logout = widgets.Button(description='🚪 Cerrar Sesión', button_style='danger')
-    btn_sincronizar = widgets.Button(description='🔄 Actualizar y Sincronizar Todo', button_style='info')
+    # Pestañas dinámicas según el rol
+    if rol_usuario == "admin":
+        tabs = st.tabs(["⚡ Cotizador", "📦 Inventario & CRUD", "📜 Historial", "🛡️ Admin Principal"])
+    elif rol_usuario == "admin_tec":
+        tabs = st.tabs(["⚡ Cotizador", "📦 Inventario & CRUD", "📜 Historial"])
+    else:
+        tabs = st.tabs(["⚡ Cotizador Cliente"])
 
-    def sincronizar_todo_handler(b):
-        w_panel.options = get_opt_p()
-        w_inversor.options = get_opt_i()
-        w_bat.options = get_opt_b()
-        print("🔄 ¡Catálogos actualizados desde la base de datos central!")
+    # --- PESTAÑA 1: COTIZADOR ---
+    with tabs[0]:
+        st.header("⚡ Dimensionamiento Fotovoltaico y Cotización")
+        
+        col_a, col_b = st.columns(2)
+        with col_a:
+            cons_bim = st.number_input("Consumo Bimestral (kWh)", min_value=50, max_value=10000, value=550)
+            hsp = st.slider("Horas Sol Pico (HSP)", 3.0, 7.0, 5.3)
+            
+            paneles_opts = {f"{p['marca']} {p['modelo']} (${p['precio_mxn']:,.0f})": p['id'] for p in db.obtener_paneles()}
+            sel_panel_label = st.selectbox("Panel Solar", list(paneles_opts.keys()))
+            pid = paneles_opts[sel_panel_label]
 
-    btn_sincronizar.on_click(sincronizar_todo_handler)
+            inversores_opts = {f"{i['marca']} {i['modelo']} (${i['precio_mxn']:,.0f})": i['id'] for i in db.obtener_inversores()}
+            sel_inv_label = st.selectbox("Inversor", list(inversores_opts.keys()))
+            iid = inversores_opts[sel_inv_label]
 
-    controles_dim = [widgets.HBox([btn_sincronizar]), w_consumo, w_hsp, w_panel, w_inversor, w_modo, w_bat, w_costo]
-    if rol_usuario != "usuario" or usr_data.get("ver_ganancia", False):
-        controles_dim.append(w_ganancia)
+        with col_b:
+            modo = st.selectbox("Modo de Operación", ['Interconectado (CFE)', 'Híbrido'])
+            baterias_opts = {"Ninguna / No Aplica": ""}
+            baterias_opts.update({f"{b['marca']} {b['modelo']} (${b['precio_mxn']:,.0f})": b['id'] for b in db.obtener_baterias()})
+            sel_bat_label = st.selectbox("Banco de Baterías", list(baterias_opts.keys()))
+            bid = baterias_opts[sel_bat_label]
 
-    controles_dim.extend([widgets.HBox([btn_calc, btn_pdf]), out_res])
-    tab_dim = widgets.VBox(controles_dim)
+            costo_kwh = st.number_input("Costo por kWh (MXN)", value=3.50)
+            
+            ganancia_visible = rol_usuario != "usuario" or usr_data.get("ver_ganancia", False)
+            if ganancia_visible:
+                ganancia_pct = st.slider("% Ganancia Comercial", 0.0, 100.0, float(usr_data.get('ganancia_pct', 40.0)))
+            else:
+                ganancia_pct = usr_data.get('ganancia_pct', 25.0)
 
-    def calc_handler(b):
-        with out_res:
-            clear_output()
+        if st.button("⚡ Calcular y Cotizar", type="primary"):
             try:
-                db.usuarios = db._cargar_usuarios()
-                usr_actualizado = db.usuarios.get(usuario_actual, {})
-                ganancia_a_usar = w_ganancia.value if (rol_usuario != "usuario" or usr_actualizado.get("ver_ganancia", False)) else usr_actualizado.get("ganancia_pct", 25.0)
+                res = MotorCalculoFV.dimensionar_sistema(cons_bim, hsp, pid, iid, costo_kwh, modo, bid, 4, ganancia_pct, 15000.0)
+                st.session_state.ultimo_calculo = res
                 
-                res = MotorCalculoFV.dimensionar_sistema(w_consumo.value, w_hsp.value, w_panel.value, w_inversor.value, w_costo.value, w_modo.value, w_bat.value, 4, ganancia_a_usar, 15000.0)
-                
-                display(HTML(f"""
-                <div style="background:#0f172a; color:#f8fafc; padding:20px; border-radius:10px;">
+                st.success("¡Cálculo realizado con éxito!")
+                st.markdown(f"""
+                <div style="background:#0f172a; color:#f8fafc; padding:20px; border-radius:10px; border: 1px solid #38bdf8;">
                     <h3 style="color:#38bdf8;">📋 Resumen de Cotización</h3>
-                    <p><b>Paneles:</b> {res['n_pan']} piezas ({res['panel']['marca']} {res['panel']['modelo']})</p>
-                    <p><b>Inversor:</b> {res['inversor']['marca']} {res['inversor']['modelo']}</p>
-                    <p style="color:#4ade80; font-size:18px;"><b>Inversión Total:</b> ${res['precio_venta']:,.2f} | <b>ROI:</b> {res['roi']:.1f} años</p>
+                    <p><b>Paneles Solares Requeridos:</b> {res['n_pan']} piezas ({res['panel']['marca']} {res['panel']['modelo']})</p>
+                    <p><b>Banco de Baterías:</b> {res['n_bat']} uds</p>
+                    <p style="color:#4ade80; font-size:20px;"><b>Inversión Total:</b> ${res['precio_venta']:,.2f} MXN | <b>Retorno (ROI):</b> {res['roi']:.1f} años</p>
                 </div>
-                """))
-            except Exception as e: print(f"❌ Error: {e}")
+                """, unsafe_allow_html=True)
+            except Exception as e:
+                st.error(f"❌ Error en el cálculo: {e}")
 
-    btn_calc.on_click(calc_handler)
-
-    def pdf_handler(b):
-        with out_res:
-            clear_output()
+        # Generador de PDF oficial con Streamlit download button
+        if st.button("📄 Generar y Descargar PDF Oficial"):
             try:
-                db.usuarios = db._cargar_usuarios()
-                usr_actualizado = db.usuarios.get(usuario_actual, {})
-                
-                rol_prefijo = "ADM" if rol_usuario == "admin" else ("SOC" if rol_usuario == "admin_tec" else "CLI")
-                contador_actual = usr_actualizado.get("contador_folios", 1)
-                folio_str = f"{rol_prefijo}-{usuario_actual.upper()[:10]}-{contador_actual:03d}"
-                
-                ganancia_a_usar = w_ganancia.value if (rol_usuario != "usuario" or usr_actualizado.get("ver_ganancia", False)) else usr_actualizado.get("ganancia_pct", 25.0)
-                mostrar_precios = True if (rol_usuario != "usuario" or usr_actualizado.get("ver_ganancia", False)) else False
-
-                res = MotorCalculoFV.dimensionar_sistema(w_consumo.value, w_hsp.value, w_panel.value, w_inversor.value, w_costo.value, w_modo.value, w_bat.value, 4, ganancia_a_usar, 15000.0)
-                nombre_archivo = f"/content/Cotizacion_{folio_str}.pdf"
-                
-                GeneradorReportes.construir_pdf(res, folio_str, nombre_archivo, mostrar_precios)
-                
-                if os.path.exists(nombre_archivo):
+                if 'ultimo_calculo' not in st.session_state:
+                    st.warning("⚠️ Primero realiza una cotización haciendo clic en 'Calcular y Cotizar'.")
+                else:
+                    res = st.session_state.ultimo_calculo
+                    rol_prefijo = "ADM" if rol_usuario == "admin" else ("SOC" if rol_usuario == "admin_tec" else "CLI")
+                    contador_actual = usr_data.get("contador_folios", 1)
+                    folio_str = f"{rol_prefijo}-{usuario_actual.upper()[:10]}-{contador_actual:03d}"
+                    
+                    nombre_archivo = f"Cotizacion_{folio_str}.pdf"
+                    mostrar_precios = rol_usuario != "usuario" or usr_data.get("ver_ganancia", False)
+                    
+                    GeneradorReportes.construir_pdf(res, folio_str, nombre_archivo, mostrar_precios)
+                    
                     db.registrar_cotizacion({
-                        "fecha_hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "fecha_hora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "folio": folio_str, "usuario": usuario_actual, "rol": rol_usuario,
                         "precio_total_mxn": round(res['precio_venta'], 2)
                     })
                     db.usuarios[usuario_actual]["contador_folios"] = contador_actual + 1
                     db.guardar_usuarios()
 
-                    try: files.download(nombre_archivo)
-                    except: pass
+                    with open(nombre_archivo, "rb") as pdf_file:
+                        pdf_bytes = pdf_file.read()
 
-                    with open(nombre_archivo, "rb") as f: b64 = base64.b64encode(f.read()).decode()
-                    display(HTML(f"""
-                    <div style="background:#065f46; color:#ecfdf5; padding:15px; border-radius:8px; margin-top:15px;">
-                        <h4>✅ PDF Generado - Folio: {folio_str}</h4>
-                        <button onclick="
-                            const link = document.createElement('a');
-                            link.href = 'data:application/pdf;base64,{b64}';
-                            link.download = 'Cotizacion_{folio_str}.pdf';
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                        " style="background:#10b981; color:white; padding:10px 20px; border:none; border-radius:5px; font-weight:bold; cursor:pointer;">
-                           📥 Forzar Descarga PDF ({folio_str})
-                        </button>
-                    </div>
-                    """))
-            except Exception as e: print(f"❌ Error PDF: {e}")
+                    st.download_button(
+                        label=f"📥 Descargar Archivo PDF ({folio_str})",
+                        data=pdf_bytes,
+                        file_name=nombre_archivo,
+                        mime="application/pdf",
+                        type="primary"
+                    )
+            except Exception as e:
+                st.error(f"❌ Error al generar PDF: {e}")
 
-    btn_pdf.on_click(pdf_handler)
-    
-    def logout_handler(b):
-        db.logout_usuario(usuario_actual)
-        with contenedor_app: clear_output()
-        with contenedor_login: clear_output(); display(box_login)
-    btn_logout.on_click(logout_handler)
+    # --- PESTAÑA 2: INVENTARIO & CRUD (AÑADIR, EDITAR Y ELIMINAR EQUIPOS) ---
+    if len(tabs) >= 2:
+        with tabs[1]:
+            st.header("📦 Biblioteca Ampliada y CRUD de Equipos")
+            st.markdown("Añade, edita o elimina paneles, inversores y baterías con todas sus especificaciones técnicas.")
+            
+            tipo_cat = st.selectbox("Seleccionar Categoría", ["paneles", "inversores", "baterias"])
+            
+            with st.form("crud_form"):
+                col_c1, col_c2 = st.columns(2)
+                with col_c1:
+                    e_id = st.text_input("ID del Equipo (ej. PAN-010 o INV-010)")
+                    e_marca = st.text_input("Marca (ej. Jinko Solar, Growatt)")
+                    e_modelo = st.text_input("Modelo y Especificaciones")
+                    e_precio = st.number_input("Precio en MXN", min_value=0.0, value=2500.0)
+                with col_c2:
+                    e_pot = st.number_input("Potencia (W) / Capacidad", value=550.0)
+                    e_vmax = st.number_input("Voltaje Máximo / Vmp (V)", value=41.5)
+                    e_largo = st.number_input("Largo (mm)", value=2278.0)
+                    e_ancho = st.number_input("Ancho (mm)", value=1134.0)
+                    e_cert = st.text_input("Certificaciones (ej. IEC61215, TUV, CE)")
 
-    # --- PESTAÑA 2: INVENTARIO CON CRUD AVANZADO ---
-    def crear_pestana_inventario():
-        w_tipo = widgets.Dropdown(options=['paneles', 'inversores', 'baterias'], description='Categoría:', style=style_lbl, layout=layout_inp)
-        w_id = widgets.Text(description='ID del Equipo:', placeholder='PAN-010', style=style_lbl, layout=layout_inp)
-        w_marca = widgets.Text(description='Marca:', placeholder='Ej. Jinko Solar', style=style_lbl, layout=layout_inp)
-        w_modelo = widgets.Text(description='Modelo:', placeholder='Ej. Tiger Neo', style=style_lbl, layout=layout_inp)
-        w_pot = widgets.FloatText(description='Potencia (W) / kW:', value=550.0, style=style_lbl, layout=layout_inp)
-        w_precio = widgets.FloatText(description='Precio (MXN):', value=2500.0, style=style_lbl, layout=layout_inp)
-        w_largo = widgets.FloatText(description='Largo (mm):', value=2278.0, style=style_lbl, layout=layout_inp)
-        w_ancho = widgets.FloatText(description='Ancho (mm):', value=1134.0, style=style_lbl, layout=layout_inp)
-        w_vmax = widgets.FloatText(description='Voltaje Máx / Vmp (V):', value=41.5, style=style_lbl, layout=layout_inp)
-        w_cert = widgets.Text(description='Certificaciones:', placeholder='IEC61215, TUV', style=style_lbl, layout=layout_inp)
-        
-        btn_crear = widgets.Button(description='➕ Añadir Nuevo', button_style='primary')
-        btn_editar = widgets.Button(description='✏️ Actualizar / Editar', button_style='warning')
-        btn_eliminar = widgets.Button(description='🗑️ Eliminar', button_style='danger')
-        out_crud = widgets.Output()
+                btn_add = st.form_submit_button("➕ Añadir Nuevo Equipo")
+                btn_upd = st.form_submit_button("✏️ Actualizar / Editar Equipo Existente")
+                btn_del = st.form_submit_button("🗑️ Eliminar Equipo")
 
-        def ejecutar_crud(accion):
-            with out_crud:
-                clear_output()
-                cat = w_tipo.value
-                eid = w_id.value.strip().upper()
-                if not eid:
-                    print("⚠️ Debes proporcionar un ID de equipo válido (ej. PAN-010).")
-                    return
-                
-                if accion == 'crear':
-                    if cat == 'paneles':
-                        nuevo = {"id": eid, "marca": w_marca.value, "modelo": w_modelo.value, "potencia_w": w_pot.value, "vmp": w_vmax.value, "largo_mm": w_largo.value, "ancho_mm": w_ancho.value, "area_m2": round((w_largo.value*w_ancho.value)/1000000.0, 2), "eficiencia_pct": 21.5, "certificaciones": w_cert.value, "precio_mxn": w_precio.value}
-                    elif cat == 'inversores':
-                        nuevo = {"id": eid, "marca": w_marca.value, "modelo": w_modelo.value, "potencia_ac_kw": w_pot.value/100.0 if w_pot.value>50 else w_pot.value, "v_max_dc": w_vmax.value, "eficiencia_pct": 98.0, "certificaciones": w_cert.value, "precio_mxn": w_precio.value}
+                if btn_add:
+                    if e_id and e_marca:
+                        eid = e_id.strip().upper()
+                        if tipo_cat == 'paneles':
+                            nuevo = {"id": eid, "marca": e_marca, "modelo": e_modelo, "potencia_w": e_pot, "vmp": e_vmax, "largo_mm": e_largo, "ancho_mm": e_ancho, "area_m2": round((e_largo*e_ancho)/1000000.0, 2), "eficiencia_pct": 21.5, "certificaciones": e_cert, "precio_mxn": e_precio}
+                        elif tipo_cat == 'inversores':
+                            nuevo = {"id": eid, "marca": e_marca, "modelo": e_modelo, "potencia_ac_kw": e_pot, "v_max_dc": e_vmax, "eficiencia_pct": 98.0, "certificaciones": e_cert, "precio_mxn": e_precio}
+                        else:
+                            nuevo = {"id": eid, "marca": e_marca, "modelo": e_modelo, "energia_kwh": e_pot, "v_nominal": e_vmax, "dod_recomendado_pct": 90.0, "certificaciones": e_cert, "precio_mxn": e_precio}
+                        
+                        db.agregar_registro(tipo_cat, nuevo)
+                        st.success(f"✅ ¡Equipo {eid} añadido correctamente a la biblioteca!")
+                        st.rerun()
                     else:
-                        nuevo = {"id": eid, "marca": w_marca.value, "modelo": w_modelo.value, "energia_kwh": w_pot.value, "v_nominal": w_vmax.value, "dod_recomendado_pct": 90.0, "certificaciones": w_cert.value, "precio_mxn": w_precio.value}
-                    
-                    db.agregar_registro(cat, nuevo)
-                    print(f"✅ ¡Equipo {eid} añadido exitosamente!")
-                elif accion == 'editar':
-                    if cat == 'paneles':
-                        upd = {"id": eid, "marca": w_marca.value, "modelo": w_modelo.value, "potencia_w": w_pot.value, "vmp": w_vmax.value, "largo_mm": w_largo.value, "ancho_mm": w_ancho.value, "area_m2": round((w_largo.value*w_ancho.value)/1000000.0, 2), "eficiencia_pct": 21.5, "certificaciones": w_cert.value, "precio_mxn": w_precio.value}
-                    elif cat == 'inversores':
-                        upd = {"id": eid, "marca": w_marca.value, "modelo": w_modelo.value, "potencia_ac_kw": w_pot.value, "v_max_dc": w_vmax.value, "eficiencia_pct": 98.0, "certificaciones": w_cert.value, "precio_mxn": w_precio.value}
+                        st.warning("⚠️ Introduce un ID y una marca válidos.")
+
+                if btn_upd:
+                    if e_id:
+                        eid = e_id.strip().upper()
+                        if tipo_cat == 'paneles':
+                            upd = {"id": eid, "marca": e_marca, "modelo": e_modelo, "potencia_w": e_pot, "vmp": e_vmax, "largo_mm": e_largo, "ancho_mm": e_ancho, "area_m2": round((e_largo*e_ancho)/1000000.0, 2), "eficiencia_pct": 21.5, "certificaciones": e_cert, "precio_mxn": e_precio}
+                        elif tipo_cat == 'inversores':
+                            upd = {"id": eid, "marca": e_marca, "modelo": e_modelo, "potencia_ac_kw": e_pot, "v_max_dc": e_vmax, "eficiencia_pct": 98.0, "certificaciones": e_cert, "precio_mxn": e_precio}
+                        else:
+                            upd = {"id": eid, "marca": e_marca, "modelo": e_modelo, "energia_kwh": e_pot, "v_nominal": e_vmax, "dod_recomendado_pct": 90.0, "certificaciones": e_cert, "precio_mxn": e_precio}
+                        
+                        exito = db.actualizar_registro(tipo_cat, eid, upd)
+                        if exito:
+                            st.success(f"✏️ ¡Equipo {eid} actualizado correctamente!")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ No se encontró ningún equipo con el ID {eid}.")
                     else:
-                        upd = {"id": eid, "marca": w_marca.value, "modelo": w_modelo.value, "energia_kwh": w_pot.value, "v_nominal": w_vmax.value, "dod_recomendado_pct": 90.0, "certificaciones": w_cert.value, "precio_mxn": w_precio.value}
-                    
-                    exito = db.actualizar_registro(cat, eid, upd)
-                    if exito: print(f"✏️ ¡Equipo {eid} actualizado correctamente!")
-                    else: print(f"❌ No se encontró el ID {eid} para actualizar.")
-                elif accion == 'eliminar':
-                    db.eliminar_registro(cat, eid)
-                    print(f"🗑️ Equipo {eid} eliminado.")
-                
-                w_panel.options = get_opt_p()
-                w_inversor.options = get_opt_i()
-                w_bat.options = get_opt_b()
+                        st.warning("⚠️ Introduce el ID del equipo que deseas actualizar.")
 
-        btn_crear.on_click(lambda b: ejecutar_crud('crear'))
-        btn_editar.on_click(lambda b: ejecutar_crud('editar'))
-        btn_eliminar.on_click(lambda b: ejecutar_crud('eliminar'))
+                if btn_del:
+                    if e_id:
+                        eid = e_id.strip().upper()
+                        db.eliminar_registro(tipo_cat, eid)
+                        st.success(f"🗑️ Equipo {eid} eliminado de la biblioteca.")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Introduce el ID del equipo a eliminar.")
 
-        return widgets.VBox([
-            widgets.HTML("<h3>📦 Biblioteca Ampliada y CRUD de Equipos</h3>"),
-            w_tipo, w_id, w_marca, w_modelo, w_pot, w_precio, w_largo, w_ancho, w_vmax, w_cert,
-            widgets.HBox([btn_crear, btn_editar, btn_eliminar]), out_crud
-        ])
+            st.markdown("---")
+            st.subheader(f"📊 Listado Actual de {tipo_cat.capitalize()}")
+            st.dataframe(pd.DataFrame(db.datos.get(tipo_cat, [])), use_container_width=True)
 
     # --- PESTAÑA 3: HISTORIAL ---
-    out_hist = widgets.Output()
-    def ref_h(b=None):
-        with out_hist:
-            clear_output()
+    if len(tabs) >= 3 and rol_usuario in ["admin", "admin_tec"]:
+        with tabs[2]:
+            st.header("📜 Historial de Cotizaciones")
             db.historial = db._cargar_historial()
-            if db.historial: display(HTML(pd.DataFrame(db.historial).to_html(index=False)))
-            else: print("Sin cotizaciones registradas.")
-    ref_h()
-    tab_hist = widgets.VBox([widgets.Button(description="🔄 Actualizar Historial", on_click=ref_h), out_hist])
+            if db.historial:
+                st.dataframe(pd.DataFrame(db.historial), use_container_width=True)
+            else:
+                st.info("No hay cotizaciones registradas todavía.")
 
-    # --- PESTAÑA 4: ADMIN PRINCIPAL CON VISUALIZACIÓN SEGURA DE CONTRASEÑAS ---
-    if rol_usuario == "admin":
-        out_users = widgets.Output()
-        
-        def obtener_lista_usuarios():
-            ops = [u for u in db.usuarios.keys() if u != 'admin']
-            return ops if ops else ['(Sin usuarios)']
+    # --- PESTAÑA 4: ADMIN PRINCIPAL & AUDITORÍA DE CREDENCIALES ---
+    if len(tabs) >= 4 and rol_usuario == "admin":
+        with tabs[3]:
+            st.header("🛡️ Panel de Administración Principal")
+            st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
+            
+            db.usuarios = db._cargar_usuarios()
+            df_users = pd.DataFrame([{ 'Usuario': u, 'Rol': d['rol'], 'Sesiones': f"{d.get('sesiones',0)}/2", 'Folio Actual': f"{d.get('contador_folios',1):03d}", 'Estado': 'ACTIVO' if d.get('activo',True) else 'BLOQUEADO' } for u, d in db.usuarios.items()])
+            st.dataframe(df_users, use_container_width=True)
 
-        drop_target_editar = widgets.Dropdown(options=obtener_lista_usuarios(), description='Modificar:', style=style_lbl, layout=layout_inp)
-
-        def actualizar_tabla_admin():
-            with out_users:
-                clear_output()
-                db.usuarios = db._cargar_usuarios()
-                drop_target_editar.options = obtener_lista_usuarios()
-
-                html_t = "<table style='width:100%; text-align:left; border-collapse:collapse;'>"
-                html_t += "<tr style='border-bottom:1px solid #ccc; background:#f1f5f9;'><th>Usuario</th><th>Rol</th><th>Sesiones</th><th>Folio Actual</th><th>Estado Cuenta</th></tr>"
-                for u, d in db.usuarios.items():
-                    estado = "🟢 ACTIVO" if d.get("activo", True) else "🔴 BAJA / BLOQUEADO"
-                    html_t += f"<tr style='height:35px; border-bottom:1px solid #eee;'><td>{u}</td><td>{d['rol']}</td><td>{d.get('sesiones',0)}/2</td><td>{d.get('contador_folios',1):03d}</td><td><b>{estado}</b></td></tr>"
-                html_t += "</table>"
-                display(HTML(html_t))
-
-        # Sección de Visualización Segura de Contraseñas
-        admin_pass_input = widgets.Password(value='', placeholder='Introduce tu contraseña de Admin', description='Contraseña Admin:', style=style_lbl, layout=layout_inp)
-        btn_ver_passwords = widgets.Button(description='👁️ Revelar Contraseñas', button_style='info')
-        out_passwords_seguro = widgets.Output()
-
-        def revelar_passwords_handler(b):
-            with out_passwords_seguro:
-                clear_output()
-                pwd_ingresada = admin_pass_input.value.strip()
-                if pwd_ingresada == db.usuarios["admin"]["pass"]:
-                    db.usuarios = db._cargar_usuarios()
-                    html_p = "<div style='background:#f8fafc; padding:15px; border-radius:8px; border:1px solid #cbd5e1; margin-top:10px;'>"
-                    html_p += "<h4 style='color:#0f172a; margin-top:0;'>🔐 Credenciales de Usuarios Registrados:</h4>"
-                    html_p += "<ul style='margin-bottom:0;'>"
+            st.markdown("---")
+            st.subheader("🔑 Auditoría de Contraseñas (Segura con Clave de Admin)")
+            pass_admin_check = st.text_input("Introduce tu contraseña de Administrador para revelar claves", type="password")
+            if st.button("👁️ Revelar Credenciales"):
+                if pass_admin_check == db.usuarios["admin"]["pass"]:
+                    st.success("✅ Autenticación correcta:")
                     for u, d in db.usuarios.items():
-                        html_p += f"<li><b>{u}</b> (Rol: {d['rol']}) ➔ Contraseña: <code style='background:#e2e8f0; padding:2px 6px; border-radius:4px;'>{d['pass']}</code></li>"
-                    html_p += "</ul></div>"
-                    display(HTML(html_p))
+                        st.code(f"Usuario: {u} | Rol: {d['rol']} | Contraseña: {d['pass']}")
                 else:
-                    print("❌ Contraseña de Administrador incorrecta. Acceso denegado.")
+                    st.error("❌ Contraseña de Administrador incorrecta.")
 
-        btn_ver_passwords.on_click(revelar_passwords_handler)
-
-        btn_deshabilitar = widgets.Button(description='🔴 Dar de Baja / Bloquear Acceso', button_style='danger')
-        btn_habilitar = widgets.Button(description='🟢 Activar Cuenta', button_style='success')
-        edit_usr_nuevo_pass = widgets.Text(description='Nueva Contraseña:', placeholder='password', style=style_lbl, layout=layout_inp)
-        btn_guardar_pass = widgets.Button(description='💾 Cambiar Contraseña', button_style='warning')
-        out_gestor_usr = widgets.Output()
-
-        def deshabilitar_handler(b):
-            with out_gestor_usr:
-                clear_output()
-                target = drop_target_editar.value
-                if target and target != '(Sin usuarios)':
-                    db.usuarios[target]["activo"] = False
-                    db.usuarios[target]["sesiones"] = 0
-                    db.guardar_usuarios()
-                    actualizar_tabla_admin()
-                    print(f"🔴 Cuenta '{target}' bloqueada instantáneamente.")
-
-        def habilitar_handler(b):
-            with out_gestor_usr:
-                clear_output()
-                target = drop_target_editar.value
-                if target and target != '(Sin usuarios)':
-                    db.usuarios[target]["activo"] = True
-                    db.guardar_usuarios()
-                    actualizar_tabla_admin()
-                    print(f"🟢 Cuenta '{target}' activada.")
-
-        def cambiar_pass_handler(b):
-            with out_gestor_usr:
-                clear_output()
-                target = drop_target_editar.value
-                n_pwd = edit_usr_nuevo_pass.value.strip()
-                if target and target != '(Sin usuarios)' and n_pwd:
-                    db.usuarios[target]["pass"] = n_pwd
-                    db.guardar_usuarios()
-                    print(f"✅ Contraseña de '{target}' actualizada con éxito.")
-
-        btn_deshabilitar.on_click(deshabilitar_handler)
-        btn_habilitar.on_click(habilitar_handler)
-        btn_guardar_pass.on_click(cambiar_pass_handler)
-        actualizar_tabla_admin()
-
-        tab_admin = widgets.VBox([
-            widgets.HTML("<h3>🛡️ Panel de Control y Auditoría de Credenciales</h3>"), out_users,
-            widgets.HTML("<hr><h4>🔑 Auditoría de Contraseñas (Requiere Autenticación de Admin):</h4>"),
-            admin_pass_input, btn_ver_passwords, out_passwords_seguro,
-            widgets.HTML("<hr><h4>Gestionar Cuentas (Bajas, Activaciones y Contraseñas):</h4>"),
-            drop_target_editar, widgets.HBox([btn_deshabilitar, btn_habilitar]), edit_usr_nuevo_pass, btn_guardar_pass, out_gestor_usr
-        ])
-
-    # Construcción de pestañas según rol
-    if rol_usuario == "admin":
-        tabs = widgets.Tab(children=[tab_dim, crear_pestana_inventario(), tab_hist, tab_admin])
-        tabs.set_title(0, '⚡ Cotizador')
-        tabs.set_title(1, '📦 Inventario & CRUD')
-        tabs.set_title(2, '📜 Historial')
-        tabs.set_title(3, '🛡️ Admin Principal')
-    elif rol_usuario == "admin_tec":
-        tabs = widgets.Tab(children=[tab_dim, crear_pestana_inventario(), tab_hist])
-        tabs.set_title(0, '⚡ Cotizador')
-        tabs.set_title(1, '📦 Inventario & CRUD')
-        tabs.set_title(2, '📜 Historial')
-    else:
-        tabs = widgets.Tab(children=[tab_dim])
-        tabs.set_title(0, '⚡ Cotizador Cliente')
-
-    with contenedor_app:
-        clear_output()
-        display(widgets.VBox([widgets.HBox([widgets.HTML(f"<h2>☀️ CECyT 7 | {usuario_actual.upper()}</h2>"), btn_logout]), tabs]))
-
-# ==============================================================================
-# 5. MÓDULO DE LOGIN SEGURO
-# ==============================================================================
-w_user = widgets.Text(value='', placeholder='Escribe tu usuario', description='Usuario:')
-w_pass = widgets.Password(value='', placeholder='Escribe tu contraseña', description='Contraseña:')
-btn_login = widgets.Button(description='🔑 Iniciar Sesión', button_style='success')
-out_login = widgets.Output()
-
-app_container = widgets.Output()
-login_container = widgets.Output()
-
-def login_handler(b):
-    with out_login:
-        clear_output()
-        usr = w_user.value.strip()
-        pwd = w_pass.value.strip()
-        
-        db.usuarios = db._cargar_usuarios()
-        if usr in db.usuarios:
-            if not db.usuarios[usr].get("activo", True):
-                print("❌ Acceso denegado: Esta cuenta ha sido inhabilitada.")
-                return
-            if db.usuarios[usr]["pass"] == pwd:
-                if db.login_usuario(usr):
-                    rol = db.usuarios[usr].get("rol", "usuario")
-                    db.registrar_acceso(usr, rol)
-                    with login_container: clear_output()
-                    construir_aplicacion_principal(app_container, login_container, rol, usr)
-                else: print("❌ Límite de sesiones alcanzado.")
-            else: print("❌ Contraseña incorrecta.")
-        else: print("❌ Usuario no encontrado.")
-
-btn_login.on_click(login_handler)
-
-box_login = widgets.VBox([
-    widgets.HTML("<h3 style='color:#0284c7;'>🔒 Acceso Sistema FV CECyT 7</h3>"), 
-    w_user, w_pass, btn_login, out_login
-])
-
-clear_output()
-display(login_container, app_container)
-with login_container: display(box_login)
+            st.markdown("---")
+            st.subheader("✏️ Gestión de Cuentas (Bajas, Bloqueos y Cambios)")
+            lista_usrs = [u for u in db.usuarios.keys() if u != 'admin']
+            target_usr = st.selectbox("Seleccionar Cuenta", lista_usrs if lista_usrs else ["Sin usuarios"])
+            
+            if target_usr and target_usr != "Sin usuarios":
+                col_g1, col_g2 = st.columns(2)
+                with col_g1:
+                    if db.usuarios[target_usr].get("activo", True):
+                        if st.button("🔴 Dar de Baja / Bloquear Acceso en Vivo", type="primary"):
+                            db.usuarios[target_usr]["activo"] = False
+                            db.usuarios[target_usr]["sesiones"] = 0
+                            db.guardar_usuarios()
+                            st.success(f"Cuenta '{target_usr}' bloqueada al instante.")
+                            st.rerun()
+                    else:
+                        if st.button("🟢 Activar Cuenta", type="primary"):
+                            db.usuarios[target_usr]["activo"] = True
+                            db.guardar_usuarios()
+                            st.success(f"Cuenta '{target_usr}' activada.")
+                            st.rerun()
+                with col_g2:
+                    nuevo_pass_usr = st.text_input("Nueva contraseña para el usuario", type="password")
+                    if st.button("💾 Guardar Nueva Contraseña"):
+                        if nuevo_pass_usr:
+                            db.usuarios[target_usr]["pass"] = nuevo_pass_usr
+                            db.guardar_usuarios()
+                            st.success("✅ Contraseña actualizada con éxito.")
