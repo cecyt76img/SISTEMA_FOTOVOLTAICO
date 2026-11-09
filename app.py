@@ -102,6 +102,8 @@ class GestorSistemaFV:
                 usrs = json.load(f)
                 if not isinstance(usrs, dict) or len(usrs) == 0:
                     raise Exception("Estructura inválida")
+                # Asegurar que admin siempre esté activo y protegido
+                usrs["admin"]["activo"] = True
                 for u in usuarios_base:
                     if u not in usrs:
                         usrs[u] = usuarios_base[u]
@@ -128,6 +130,8 @@ class GestorSistemaFV:
 
     def guardar_usuarios(self):
         try:
+            if "admin" in self.usuarios:
+                self.usuarios["admin"]["activo"] = True # Blindaje permanente
             with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: 
                 json.dump(self.usuarios, f, indent=4)
         except:
@@ -353,7 +357,6 @@ params = st.query_params
 url_user = str(params.get("user", "")).strip()
 url_token = str(params.get("token", "")).strip()
 
-# Validación estricta por token en URL
 if not st.session_state.logged_in and url_user and url_token and url_token not in ["False", "None", ""]:
     db.usuarios = db._cargar_usuarios()
     if url_user in db.usuarios and db.usuarios[url_user].get("activo", True):
@@ -410,7 +413,6 @@ else:
     active_tokens = usr_info.get("active_sessions", []) if isinstance(usr_info, dict) else []
     cuenta_activa = usr_info.get("activo", True) if isinstance(usr_info, dict) else True
 
-    # Verificación estricta de revocación o cierre de sesión
     if not cuenta_activa or (st.session_state.session_token and active_tokens and st.session_state.session_token not in active_tokens):
         try:
             if usuario_actual and st.session_state.session_token:
@@ -714,7 +716,6 @@ else:
                 num_sesiones = len(sessions)
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
-                # Verificación estricta por usuario individual: Solo se pinta en verde si tiene sesiones reales activas en el JSON
                 if not is_activo:
                     bg_color = "#7f1d1d" 
                     txt_color = "#fecaca"
@@ -816,13 +817,15 @@ else:
 
             st.markdown("---")
             st.subheader("✏️ Gestión de Cuentas (Bajas, Bloqueos y Cambios)")
-            lista_usrs = [u for u in db.usuarios.keys() if u != 'admin']
-            target_usr = st.selectbox("Seleccionar Cuenta", lista_usrs if lista_usrs else ["Sin usuarios"])
+            lista_usrs = [u for u in db.usuarios.keys() if u != 'admin'] # Se excluye estrictamente al admin de la lista
+            target_usr = st.selectbox("Seleccionar Cuenta (El Administrador está protegido)", lista_usrs if lista_usrs else ["Sin usuarios"])
             
             if target_usr and target_usr != "Sin usuarios":
                 col_g1, col_g2 = st.columns(2)
                 with col_g1:
-                    if db.usuarios[target_usr].get("activo", True):
+                    if target_usr == "admin":
+                        st.error("🚫 ¡ACCIÓN PROHIBIDA! La cuenta de Administrador no puede ser dada de baja.")
+                    elif db.usuarios[target_usr].get("activo", True):
                         if st.button("🔴 Dar de Baja / Bloquear Acceso en Vivo", type="primary"):
                             db.usuarios[target_usr]["activo"] = False
                             db.usuarios[target_usr]["active_sessions"] = []
