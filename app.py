@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Final Completa con Autorrefresco y Persistencia
+# Sistema Integral FV - Versión Final con Autorrefresco Nativo (Sin dependencias externas)
 # ==============================================================================
 
 import os
@@ -15,7 +15,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
 import streamlit.components.v1 as components
-from streamlit_autorefresh import st_autorefresh
 
 # ReportLab - PDF y Vectorial
 from reportlab.lib.pagesizes import letter
@@ -350,7 +349,6 @@ if 'logged_in' not in st.session_state:
     st.session_state.rol = ""
     st.session_state.session_token = None
 
-# Recuperar parámetros de URL para persistencia al refrescar (F5)
 params = st.query_params
 url_user = params.get("user", "")
 url_token = params.get("token", "")
@@ -696,15 +694,12 @@ else:
             else:
                 st.info("No hay cotizaciones registradas todavía.")
 
-    # --- PESTAÑA 5: ADMIN PRINCIPAL & AUTORREFRESCO EN TIEMPO REAL ---
+    # --- PESTAÑA 5: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO ---
     if rol_usuario == "admin" and len(tabs) >= 5:
         with tabs[4]:
             st.header("🛡️ Panel de Administración Principal")
             st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
             
-            # Autorrefresco automático cada 2 segundos (2000 ms) para detectar entradas y salidas al instante
-            st_autorefresh(interval=2000, limit=None, key="admin_realtime_refresh")
-
             if st.button("🔄 Actualizar Monitoreo Ahora"):
                 db.usuarios = db._cargar_usuarios()
                 st.rerun()
@@ -722,7 +717,7 @@ else:
                     txt_color = "#fecaca"
                     estado_txt = "BLOQUEADO / BAJA"
                 elif num_sesiones > 0:
-                    bg_color = "#064e3b" # Verde brillante en vivo estricto
+                    bg_color = "#064e3b" # Verde brillante en vivo
                     txt_color = "#a7f3d0"
                     estado_txt = "CONECTADO EN VIVO"
                 else:
@@ -740,6 +735,7 @@ else:
                     </tr>
                 """
 
+            # Autorrefresco nativo con JavaScript embebido cada 2000 ms (2 segundos)
             html_monitoreo = f"""
             <div style="background: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px; overflow-x: auto;">
                 <table style="width: 100%; border-collapse: collapse; color: #f8fafc; font-family: sans-serif;">
@@ -757,9 +753,14 @@ else:
                     </tbody>
                 </table>
             </div>
+            <script>
+                setTimeout(function(){
+                    window.location.reload();
+                }, 2000);
+            </script>
             """
             
-            components.html(html_monitoreo, height=220, scrolling=True)
+            components.html(html_monitoreo, height=240, scrolling=True)
 
             st.markdown("---")
             st.subheader("➕ Crear Nuevo Perfil de Usuario")
