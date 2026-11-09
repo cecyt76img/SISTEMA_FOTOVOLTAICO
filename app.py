@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Control Total de Ganancias por Rol y Cliente (0.0% a 100.0%)
+# Sistema Integral FV - Versión Definitiva con Cambio de Contraseña Autoservicio
 # ==============================================================================
 
 import os
@@ -495,7 +495,26 @@ else:
 
     usr_data = usr_info
 
-    st.sidebar.markdown(f"### ☀️ CECyT 7\n**Usuario:** {usuario_actual.upper()}\n**Rol:** {rol_usuario.upper()}")
+    # SIDEBAR: Muestra únicamente el Nombre de Usuario (Se eliminó la etiqueta 'Rol')
+    st.sidebar.markdown(f"### ☀️ CECyT 7\n**Usuario:** {usuario_actual.upper()}")
+    
+    # AUTOSERVICIO DE CAMBIO DE CONTRASEÑA PARA CUALQUIER USUARIO (Cliente, Socio o Admin)
+    with st.sidebar.expander("🔑 Cambiar mi Contraseña"):
+        with st.form("form_autoservicio_pass", clear_on_submit=True):
+            pass_nueva_mi = st.text_input("Nueva Contraseña", type="password")
+            pass_conf_mi = st.text_input("Confirmar Contraseña", type="password")
+            btn_guardar_mi_pass = st.form_submit_button("💾 Actualizar Contraseña")
+            
+            if btn_guardar_mi_pass:
+                if not pass_nueva_mi:
+                    st.warning("⚠️ Ingresa una contraseña válida.")
+                elif pass_nueva_mi != pass_conf_mi:
+                    st.error("❌ Las contraseñas no coinciden.")
+                else:
+                    db.usuarios[usuario_actual]["pass"] = pass_nueva_mi
+                    db.guardar_usuarios()
+                    st.success("✅ ¡Tu contraseña se ha actualizado exitosamente!")
+
     if st.sidebar.button("🚪 Cerrar Sesión", type="primary"):
         try:
             if usuario_actual and st.session_state.session_token:
@@ -770,26 +789,24 @@ else:
             else:
                 st.info("No hay cotizaciones registradas todavía.")
 
-    # --- PESTAÑA: GESTIÓN DE CLIENTES Y CONTROL GENERAL DE GANANCIAS ---
+    # --- PESTAÑA 5: GESTIÓN DE CLIENTES Y CONTROL GENERAL DE GANANCIAS ---
     indice_cli = 4 if rol_usuario in ["admin", "admin_tec"] else None
-    if indice_cli is not None and len(tabs) > indice_cli and tabs[indice_cli].title == "👥 Gestión Clientes":
+    if indice_cli is not None and len(tabs) > indice_cli:
         with tabs[indice_cli]:
-            st.header("👥 Gestión Integral de Ganancias (Clientes, Socios y Administrador)")
-            st.markdown("Permite a los **Socios y al Administrador Principal** consultar, activar/desactivar y ajustar exactamente el porcentaje de ganancia (**del 0.0% al 100.0%**) para cualquier cuenta del sistema.")
+            st.header("👥 Gestión Integral de Ganancias de Usuarios")
+            st.markdown("Permite a los **Socios y al Administrador Principal** consultar, activar/desactivar y ajustar exactamente el porcentaje de ganancia (**del 0.0% al 100.0%**) para cualquier usuario del sistema.")
 
             db.usuarios = db._cargar_usuarios()
 
-            # TABLA RESUMEN DE GANANCIAS CONFIGURADAS POR ROL
+            # TABLA RESUMEN DE GANANCIAS (MUESTRA SÓLO EL NOMBRE DE USUARIO)
             st.subheader("📋 Resumen Actual de Ganancias Configuradas en el Sistema")
             resumen_usrs = []
             for u, d in db.usuarios.items():
-                rol_lbl = "Administrador Principal" if d.get('rol') == 'admin' else ("Socio / Admin Técnico" if d.get('rol') == 'admin_tec' else "Cliente")
                 resumen_usrs.append({
                     "Usuario": u,
-                    "Rol del Perfil": rol_lbl,
                     "% Ganancia Asignada": f"{d.get('ganancia_pct', 0.0):.1f}%",
                     "Estado Ganancia": "🟢 ACTIVADA" if d.get('aplicar_ganancia', True) else "🔴 DESACTIVADA (0%)",
-                    "Permiso Edición": "✅ SÍ" if d.get('ver_ganancia', False) or d.get('rol') in ['admin', 'admin_tec'] else "🔒 BLOCKED (Fijo)"
+                    "Permiso Edición": "✅ SÍ" if d.get('ver_ganancia', False) or d.get('rol') in ['admin', 'admin_tec'] else "🔒 BLOQUEADO (Fijo)"
                 })
             st.dataframe(pd.DataFrame(resumen_usrs), use_container_width=True)
 
@@ -801,7 +818,6 @@ else:
 
             if usr_seleccionado:
                 u_datos = db.usuarios[usr_seleccionado]
-                es_target_admin = u_datos.get('rol') == 'admin'
                 
                 col_g1, col_g2, col_g3 = st.columns(3)
                 
@@ -829,7 +845,7 @@ else:
                     st.success(f"✅ ¡Parámetros de '{usr_seleccionado}' actualizados correctamente! (Ganancia: {nuevo_pct_val}%, Estado: {'ACTIVA' if nuevo_aplicar else 'DESACTIVADA'}).")
                     st.rerun()
 
-    # --- PESTAÑA 5: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO (EXCLUSIVA PARA ADMIN) ---
+    # --- PESTAÑA 6: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO (EXCLUSIVA PARA ADMIN) ---
     if rol_usuario == "admin" and len(tabs) >= 6:
         with tabs[5]:
             st.header("🛡️ Panel de Administración Principal")
@@ -872,7 +888,6 @@ else:
                 filas_html += f"""
                     <tr style="background-color: {bg_color}; color: {txt_color}; border-bottom: 1px solid #334155;">
                         <td style="padding: 12px; font-weight: bold;">{u}</td>
-                        <td style="padding: 12px;">{d.get('rol', 'usuario')}</td>
                         <td style="padding: 12px;">{max(num_sesiones, 1 if es_este_usuario_activo else 0)}/3</td>
                         <td style="padding: 12px;">{d.get('contador_folios', 1):03d}</td>
                         <td style="padding: 12px; font-weight: bold;">{estado_txt}</td>
@@ -885,7 +900,6 @@ else:
                     <thead>
                         <tr style="border-bottom: 2px solid #475569; text-align: left; background-color: #0f172a;">
                             <th style="padding: 12px;">Usuario</th>
-                            <th style="padding: 12px;">Rol</th>
                             <th style="padding: 12px;">Sesiones Activas</th>
                             <th style="padding: 12px;">Folio Actual</th>
                             <th style="padding: 12px;">Estado</th>
@@ -943,12 +957,14 @@ else:
 
             st.markdown("---")
             st.subheader("🔑 Auditoría de Contraseñas (Segura con Clave de Admin)")
+            st.caption("Muestra las contraseñas actualizadas de todos los usuarios (incluso si la cambiaron por su cuenta).")
             pass_admin_check = st.text_input("Introduce tu contraseña de Administrador para revelar claves", type="password")
             if st.button("👁️ Revelar Credenciales"):
+                db.usuarios = db._cargar_usuarios()
                 if pass_admin_check == db.usuarios["admin"]["pass"]:
                     st.success("✅ Autenticación correcta:")
                     for u, d in db.usuarios.items():
-                        st.code(f"Usuario: {u} | Rol: {d['rol']} | Contraseña: {d['pass']}")
+                        st.code(f"Usuario: {u} | Contraseña Actual: {d['pass']}")
                 else:
                     st.error("❌ Contraseña de Administrador incorrecta.")
 
@@ -981,7 +997,7 @@ else:
                             st.success(f"Cuenta '{target_usr}' activada.")
                             st.rerun()
 
-                # Columna 2: Cambio de Contraseña
+                # Columna 2: Cambio de Contraseña por Admin
                 with col_g2:
                     st.markdown("**Cambiar Contraseña**")
                     nuevo_pass_usr = st.text_input("Nueva contraseña", type="password", key=f"pass_{target_usr}")
@@ -1015,7 +1031,7 @@ else:
                                 db.usuarios[target_usr]["ver_ganancia"] = False
                                 db.usuarios[target_usr]["ganancia_pct"] = 25.0
                             db.guardar_usuarios()
-                            st.success(f"✅ ¡El rol de '{target_usr}' cambió a {nuevo_rol_sel}!")
+                            st.success(f"✅ ¡El perfil de '{target_usr}' fue actualizado!")
                             st.rerun()
                         else:
                             st.info("El usuario ya tiene ese rol asignado.")
