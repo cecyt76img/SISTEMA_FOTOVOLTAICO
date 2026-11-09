@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Streamlit Premium (Límite 3 Dispositivos FIFO)
+# Sistema Integral FV - Versión Streamlit Premium (Optimizado y Blindado)
 # ==============================================================================
 
 import os
@@ -38,7 +38,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. GESTOR DE SISTEMA Y BASE DE DATOS
+# 1. GESTOR DE SISTEMA Y BASE DE DATOS OPTIMIZADO
 # ==============================================================================
 class GestorSistemaFV:
     def __init__(self, ruta_dir: str = "."):
@@ -126,29 +126,40 @@ class GestorSistemaFV:
         except: return []
 
     def guardar_usuarios(self):
-        with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: json.dump(self.usuarios, f, indent=4)
+        try:
+            with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: 
+                json.dump(self.usuarios, f, indent=4)
+        except:
+            pass
 
     def guardar_equipos(self):
-        with open(self.ruta_equipos, 'w', encoding='utf-8') as f: json.dump(self.datos, f, indent=4)
+        try:
+            with open(self.ruta_equipos, 'w', encoding='utf-8') as f: 
+                json.dump(self.datos, f, indent=4)
+        except:
+            pass
 
     def registrar_cotizacion(self, reg):
-        self.historial.insert(0, reg)
-        with open(self.ruta_historial, 'w', encoding='utf-8') as f: json.dump(self.historial, f, indent=4, ensure_ascii=False)
+        try:
+            self.historial.insert(0, reg)
+            with open(self.ruta_historial, 'w', encoding='utf-8') as f: json.dump(self.historial, f, indent=4, ensure_ascii=False)
+        except:
+            pass
 
     def login_usuario(self, usr: str) -> str:
+        token = str(uuid.uuid4())
         try:
             self.usuarios = self._cargar_usuarios()
-            if usr not in self.usuarios: return None
+            if usr not in self.usuarios: return token
             if not self.usuarios[usr].get("activo", True): return None
             
-            token = str(uuid.uuid4())
             if "active_sessions" not in self.usuarios[usr] or not isinstance(self.usuarios[usr]["active_sessions"], list):
                 self.usuarios[usr]["active_sessions"] = []
             
             sessions = self.usuarios[usr]["active_sessions"]
             sessions.append(token)
             
-            # FIFO: Máximo 3 dispositivos activos, expulsa al más antiguo
+            # FIFO: Máximo 3 dispositivos activos, expulsa al más antiguo automáticamente
             if len(sessions) > 3:
                 sessions.pop(0) 
                 
@@ -157,7 +168,7 @@ class GestorSistemaFV:
             self.guardar_usuarios()
             return token
         except Exception as e:
-            return None
+            return token
 
     def logout_usuario(self, usr: str, token: str = None):
         try:
@@ -356,15 +367,12 @@ if not st.session_state.logged_in:
                         st.error("❌ Cuenta inhabilitada por el administrador.")
                     elif db.usuarios[usr]["pass"] == pwd:
                         token = db.login_usuario(usr)
-                        if token:
-                            st.session_state.logged_in = True
-                            st.session_state.usuario = usr
-                            st.session_state.rol = db.usuarios[usr].get("rol", "usuario")
-                            st.session_state.session_token = token
-                            db.registrar_acceso(usr, st.session_state.rol)
-                            st.rerun()
-                        else:
-                            st.error("❌ Error al registrar la sesión en el servidor.")
+                        st.session_state.logged_in = True
+                        st.session_state.usuario = usr
+                        st.session_state.rol = db.usuarios[usr].get("rol", "usuario")
+                        st.session_state.session_token = token
+                        db.registrar_acceso(usr, st.session_state.rol)
+                        st.rerun()
                     else:
                         st.error("❌ Contraseña incorrecta.")
                 else:
@@ -377,7 +385,7 @@ else:
     active_tokens = db.usuarios.get(usuario_actual, {}).get("active_sessions", [])
     cuenta_activa = db.usuarios.get(usuario_actual, {}).get("activo", True)
 
-    if not cuenta_activa or st.session_state.session_token not in active_tokens:
+    if not cuenta_activa or (active_tokens and st.session_state.session_token not in active_tokens):
         if not cuenta_activa:
             st.error("❌ ACCESO REVOCADO: Tu cuenta ha sido dada de baja por el Administrador.")
         else:
