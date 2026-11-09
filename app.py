@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Streamlit Premium (Login y Sesiones Corregidas)
+# Sistema Integral FV - Versión Streamlit Premium (Límite 3 Dispositivos FIFO)
 # ==============================================================================
 
 import os
@@ -99,25 +99,17 @@ class GestorSistemaFV:
         try:
             with open(self.ruta_usuarios, 'r', encoding='utf-8') as f: 
                 usrs = json.load(f)
-                cambios = False
-                for u in usrs:
-                    if "contador_folios" not in usrs[u]: 
-                        usrs[u]["contador_folios"] = 1
-                        cambios = True
-                    if "activo" not in usrs[u]: 
-                        usrs[u]["activo"] = True
-                        cambios = True
-                    if "active_sessions" not in usrs[u]: 
-                        usrs[u]["active_sessions"] = []
-                        cambios = True
-                    if "sesiones" not in usrs[u]:
-                        usrs[u]["sesiones"] = 0
-                        cambios = True
-                if cambios:
-                    with open(self.ruta_usuarios, 'w', encoding='utf-8') as fw: 
-                        json.dump(usrs, fw, indent=4)
+                if not isinstance(usrs, dict) or len(usrs) == 0:
+                    raise Exception("Estructura inválida")
+                for u in usuarios_base:
+                    if u not in usrs:
+                        usrs[u] = usuarios_base[u]
+                    else:
+                        for k in usuarios_base[u]:
+                            if k not in usrs[u]:
+                                usrs[u][k] = usuarios_base[u][k]
                 return usrs
-        except: 
+        except:
             with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: json.dump(usuarios_base, f, indent=4)
             return usuarios_base
 
@@ -144,39 +136,48 @@ class GestorSistemaFV:
         with open(self.ruta_historial, 'w', encoding='utf-8') as f: json.dump(self.historial, f, indent=4, ensure_ascii=False)
 
     def login_usuario(self, usr: str) -> str:
-        self.usuarios = self._cargar_usuarios()
-        if usr not in self.usuarios: return None
-        if not self.usuarios[usr].get("activo", True): return None
-        
-        token = str(uuid.uuid4())
-        if "active_sessions" not in self.usuarios[usr]:
-            self.usuarios[usr]["active_sessions"] = []
-        
-        sessions = self.usuarios[usr]["active_sessions"]
-        sessions.append(token)
-        
-        # FIFO: Máximo 2 dispositivos activos, expulsa al más antiguo
-        if len(sessions) > 2:
-            sessions.pop(0) 
+        try:
+            self.usuarios = self._cargar_usuarios()
+            if usr not in self.usuarios: return None
+            if not self.usuarios[usr].get("activo", True): return None
             
-        self.usuarios[usr]["active_sessions"] = sessions
-        self.usuarios[usr]["sesiones"] = len(sessions)
-        self.guardar_usuarios()
-        return token
+            token = str(uuid.uuid4())
+            if "active_sessions" not in self.usuarios[usr] or not isinstance(self.usuarios[usr]["active_sessions"], list):
+                self.usuarios[usr]["active_sessions"] = []
+            
+            sessions = self.usuarios[usr]["active_sessions"]
+            sessions.append(token)
+            
+            # FIFO: Máximo 3 dispositivos activos, expulsa al más antiguo
+            if len(sessions) > 3:
+                sessions.pop(0) 
+                
+            self.usuarios[usr]["active_sessions"] = sessions
+            self.usuarios[usr]["sesiones"] = len(sessions)
+            self.guardar_usuarios()
+            return token
+        except Exception as e:
+            return None
 
     def logout_usuario(self, usr: str, token: str = None):
-        self.usuarios = self._cargar_usuarios()
-        if usr in self.usuarios and "active_sessions" in self.usuarios[usr]:
-            if token and token in self.usuarios[usr]["active_sessions"]:
-                self.usuarios[usr]["active_sessions"].remove(token)
-            elif self.usuarios[usr]["active_sessions"]:
-                self.usuarios[usr]["active_sessions"].pop()
-            self.usuarios[usr]["sesiones"] = len(self.usuarios[usr]["active_sessions"])
-            self.guardar_usuarios()
+        try:
+            self.usuarios = self._cargar_usuarios()
+            if usr in self.usuarios and "active_sessions" in self.usuarios[usr]:
+                if token and token in self.usuarios[usr]["active_sessions"]:
+                    self.usuarios[usr]["active_sessions"].remove(token)
+                elif self.usuarios[usr]["active_sessions"]:
+                    self.usuarios[usr]["active_sessions"].pop()
+                self.usuarios[usr]["sesiones"] = len(self.usuarios[usr]["active_sessions"])
+                self.guardar_usuarios()
+        except:
+            pass
 
     def registrar_acceso(self, usuario: str, rol: str):
-        self.auditoria.insert(0, {"fecha_hora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": usuario, "rol": rol})
-        with open(self.ruta_auditoria, 'w', encoding='utf-8') as f: json.dump(self.auditoria, f, indent=4)
+        try:
+            self.auditoria.insert(0, {"fecha_hora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": usuario, "rol": rol})
+            with open(self.ruta_auditoria, 'w', encoding='utf-8') as f: json.dump(self.auditoria, f, indent=4)
+        except:
+            pass
 
     def obtener_paneles(self): 
         self.datos = self._cargar_equipos()
@@ -363,7 +364,7 @@ if not st.session_state.logged_in:
                             db.registrar_acceso(usr, st.session_state.rol)
                             st.rerun()
                         else:
-                            st.error("❌ Error al registrar la sesión.")
+                            st.error("❌ Error al registrar la sesión en el servidor.")
                     else:
                         st.error("❌ Contraseña incorrecta.")
                 else:
@@ -650,7 +651,7 @@ else:
             st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
             
             db.usuarios = db._cargar_usuarios()
-            df_users = pd.DataFrame([{ 'Usuario': u, 'Rol': d['rol'], 'Sesiones': f"{len(d.get('active_sessions', []))}/2", 'Folio Actual': f"{d.get('contador_folios',1):03d}", 'Estado': 'ACTIVO' if d.get('activo',True) else 'BLOQUEADO' } for u, d in db.usuarios.items()])
+            df_users = pd.DataFrame([{ 'Usuario': u, 'Rol': d['rol'], 'Sesiones': f"{len(d.get('active_sessions', []))}/3", 'Folio Actual': f"{d.get('contador_folios',1):03d}", 'Estado': 'ACTIVO' if d.get('activo',True) else 'BLOQUEADO' } for u, d in db.usuarios.items()])
             st.dataframe(df_users, use_container_width=True)
 
             st.markdown("---")
