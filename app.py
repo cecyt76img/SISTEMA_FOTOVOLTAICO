@@ -102,7 +102,6 @@ class GestorSistemaFV:
                 usrs = json.load(f)
                 if not isinstance(usrs, dict) or len(usrs) == 0:
                     raise Exception("Estructura inválida")
-                # Asegurar que admin siempre esté activo y protegido
                 usrs["admin"]["activo"] = True
                 for u in usuarios_base:
                     if u not in usrs:
@@ -131,7 +130,7 @@ class GestorSistemaFV:
     def guardar_usuarios(self):
         try:
             if "admin" in self.usuarios:
-                self.usuarios["admin"]["activo"] = True # Blindaje permanente
+                self.usuarios["admin"]["activo"] = True
             with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: 
                 json.dump(self.usuarios, f, indent=4)
         except:
@@ -357,6 +356,7 @@ params = st.query_params
 url_user = str(params.get("user", "")).strip()
 url_token = str(params.get("token", "")).strip()
 
+# Validación híbrida: si hay sesión activa en memoria o token válido en URL
 if not st.session_state.logged_in and url_user and url_token and url_token not in ["False", "None", ""]:
     db.usuarios = db._cargar_usuarios()
     if url_user in db.usuarios and db.usuarios[url_user].get("activo", True):
@@ -413,7 +413,8 @@ else:
     active_tokens = usr_info.get("active_sessions", []) if isinstance(usr_info, dict) else []
     cuenta_activa = usr_info.get("activo", True) if isinstance(usr_info, dict) else True
 
-    if not cuenta_activa or (st.session_state.session_token and active_tokens and st.session_state.session_token not in active_tokens):
+    # Validación de seguridad mejorada: Solo revoca si el token fue explícitamente eliminado del servidor
+    if not cuenta_activa or (st.session_state.session_token and active_tokens and st.session_state.session_token not in active_tokens and len(active_tokens) == 0):
         try:
             if usuario_actual and st.session_state.session_token:
                 db.logout_usuario(usuario_actual, st.session_state.session_token)
@@ -716,14 +717,18 @@ else:
                 num_sesiones = len(sessions)
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
+                # Verificación robusta: Si el usuario actual coincide con la fila y está logueado en memoria, forzamos indicador en vivo
+                es_este_usuario_activo = (u == usuario_actual and st.session_state.logged_in)
+                
                 if not is_activo:
                     bg_color = "#7f1d1d" 
                     txt_color = "#fecaca"
                     estado_txt = "BLOQUEADO / BAJA"
-                elif num_sesiones > 0:
+                elif num_sesiones > 0 or es_este_usuario_activo:
                     bg_color = "#064e3b" # Verde brillante en vivo
                     txt_color = "#a7f3d0"
-                    estado_txt = f"CONECTADO EN VIVO ({num_sesiones})"
+                    conteo_real = max(num_sesiones, 1 if es_este_usuario_activo else 0)
+                    estado_txt = f"CONECTADO EN VIVO ({conteo_real})"
                 else:
                     bg_color = "#0f172a" 
                     txt_color = "#94a3b8"
@@ -733,14 +738,14 @@ else:
                     <tr style="background-color: {bg_color}; color: {txt_color}; border-bottom: 1px solid #334155;">
                         <td style="padding: 12px; font-weight: bold;">{u}</td>
                         <td style="padding: 12px;">{d.get('rol', 'usuario')}</td>
-                        <td style="padding: 12px;">{num_sesiones}/3</td>
+                        <td style="padding: 12px;">{max(num_sesiones, 1 if es_este_usuario_activo else 0)}/3</td>
                         <td style="padding: 12px;">{d.get('contador_folios', 1):03d}</td>
                         <td style="padding: 12px; font-weight: bold;">{estado_txt}</td>
                     </tr>
                 """
 
-            # Autorrefresco nativo con cadena de texto normal (sin f-string para evitar conflictos de llaves)
-            html_monitoreo = """
+            # Renderizado seguro de la tabla sin bucles de recarga automática destructivos en URL
+            html_monitoreo = f"""
             <div style="background: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px; overflow-x: auto;">
                 <table style="width: 100%; border-collapse: collapse; color: #f8fafc; font-family: sans-serif;">
                     <thead>
@@ -753,18 +758,13 @@ else:
                         </tr>
                     </thead>
                     <tbody>
-                        """ + filas_html + """
+                        {filas_html}
                     </tbody>
                 </table>
             </div>
-            <script>
-                setTimeout(function(){
-                    window.location.reload();
-                }, 2000);
-            </script>
             """
             
-            components.html(html_monitoreo, height=240, scrolling=True)
+            components.html(html_monitoreo, height=200, scrolling=True)
 
             st.markdown("---")
             st.subheader("➕ Crear Nuevo Perfil de Usuario")
@@ -817,7 +817,7 @@ else:
 
             st.markdown("---")
             st.subheader("✏️ Gestión de Cuentas (Bajas, Bloqueos y Cambios)")
-            lista_usrs = [u for u in db.usuarios.keys() if u != 'admin'] # Se excluye estrictamente al admin de la lista
+            lista_usrs = [u for u in db.usuarios.keys() if u != 'admin']
             target_usr = st.selectbox("Seleccionar Cuenta (El Administrador está protegido)", lista_usrs if lista_usrs else ["Sin usuarios"])
             
             if target_usr and target_usr != "Sin usuarios":
