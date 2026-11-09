@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Final (Monitoreo Estilizado Modo Oscuro)
+# Sistema Integral FV - Versión Monitoreo Limpio y Persistente
 # ==============================================================================
 
 import os
@@ -165,7 +165,11 @@ class GestorSistemaFV:
                 
             self.usuarios[usr]["active_sessions"] = sessions
             self.usuarios[usr]["sesiones"] = len(sessions)
-            self.guardar_usuarios()
+            
+            # Forzar guardado inmediato al archivo físico
+            with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: 
+                json.dump(self.usuarios, f, indent=4)
+                
             return token
         except Exception as e:
             return token
@@ -677,39 +681,57 @@ else:
 
             db.usuarios = db._cargar_usuarios()
             
-            users_list = []
+            # Generación de tarjetas visuales HTML en lugar de tabla plana para lograr barras completas verdes/rojas sin código basura
+            html_monitoreo = """
+            <div style="background: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px;">
+                <table style="width: 100%; border-collapse: collapse; color: #f8fafc; font-family: sans-serif;">
+                    <thead>
+                        <tr style="border-bottom: 2px solid #475569; text-align: left;">
+                            <th style="padding: 10px;">Usuario</th>
+                            <th style="padding: 10px;">Rol</th>
+                            <th style="padding: 10px;">Sesiones Activas</th>
+                            <th style="padding: 10px;">Folio Actual</th>
+                            <th style="padding: 10px;">Estado</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            """
+            
             for u, d in db.usuarios.items():
                 num_sesiones = len(d.get('active_sessions', [])) if isinstance(d, dict) else 0
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
-                # Colores adaptados al modo oscuro
+                # Asignación de colores para toda la barra según estado
                 if not is_activo:
+                    bg_color = "#7f1d1d" # Rojo oscuro
+                    txt_color = "#fecaca"
                     estado_txt = "BLOQUEADO / BAJA"
-                    color_fila = "background-color: #7f1d1d; color: #fecaca;" # Rojo oscuro oscuro
                 elif num_sesiones > 0:
+                    bg_color = "#064e3b" # Verde oscuro
+                    txt_color = "#a7f3d0"
                     estado_txt = "CONECTADO EN VIVO"
-                    color_fila = "background-color: #064e3b; color: #a7f3d0;" # Verde oscuro oscuro
                 else:
+                    bg_color = "#0f172a" # Negro / Gris oscuro base
+                    txt_color = "#94a3b8"
                     estado_txt = "INACTIVO"
-                    color_fila = "background-color: #1e293b; color: #94a3b8;" # Gris oscuro (modo oscuro)
 
-                users_list.append({
-                    'Usuario': u, 
-                    'Rol': d.get('rol', 'usuario'), 
-                    'Sesiones Activas': f"{num_sesiones}/3", 
-                    'Folio Actual': f"{d.get('contador_folios',1):03d}", 
-                    'Estado': estado_txt,
-                    '_style': color_fila
-                })
-
-            df_users = pd.DataFrame(users_list)
+                html_monitoreo += f"""
+                        <tr style="background-color: {bg_color}; color: {txt_color}; border-bottom: 1px solid #334155;">
+                            <td style="padding: 10px; font-weight: bold;">{u}</td>
+                            <td style="padding: 10px;">{d.get('rol', 'usuario')}</td>
+                            <td style="padding: 10px;">{num_sesiones}/3</td>
+                            <td style="padding: 10px;">{d.get('contador_folios', 1):03d}</td>
+                            <td style="padding: 10px; font-weight: bold;">{estado_txt}</td>
+                        </tr>
+                """
             
-            def color_rows(row):
-                return [row['_style']] * len(row)
-
-            # Se aplica el estilo y se oculta la columna técnica '_style' para que no aparezcan códigos
-            styled_df = df_users.style.apply(color_rows, axis=1).hide(subset=['_style'], axis='columns')
-            st.dataframe(styled_df, use_container_width=True)
+            html_monitoreo += """
+                    </tbody>
+                </table>
+            </div>
+            """
+            
+            st.markdown(html_monitoreo, unsafe_allow_html=True)
 
             st.markdown("---")
             st.subheader("➕ Crear Nuevo Perfil de Usuario")
