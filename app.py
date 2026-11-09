@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Definitiva con Refresco de 1 Min y Limpieza Auto
+# Sistema Integral FV - Versión Definitiva (Ganancias Restringidas y PDF Optimizado)
 # ==============================================================================
 
 import os
@@ -308,40 +308,94 @@ class MotorCalculoFV:
         }
 
 # ==============================================================================
-# 3. GENERADOR DE PDF PROFESIONAL
+# 3. GENERADOR DE PDF PROFESIONAL (MODELOS, ROI Y SOLO PRECIO FINAL)
 # ==============================================================================
 class GeneradorReportes:
     @staticmethod
-    def construir_pdf(datos, folio_str, ruta_salida, mostrar_precios_internos):
+    def construir_pdf(datos, folio_str, ruta_salida, mostrar_precios_internos=False):
         doc = SimpleDocTemplate(ruta_salida, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
         styles = getSampleStyleSheet()
-        story = [Paragraph(f"MEMORIA TÉCNICA - CECyT 7 | Folio: {folio_str}", styles['Heading1']), Spacer(1, 10)]
-        
-        marca_bat = datos['bateria'].get('marca', 'N/A') if datos['bateria'] else 'N/A'
-        precio_bat = datos['bateria'].get('precio_mxn', 0.0) if datos['bateria'] else 0.0
-        precio_p = datos['panel'].get('precio_mxn', 0.0)
-        precio_i = datos['inversor'].get('precio_mxn', 0.0)
+        story = []
 
-        if mostrar_precios_internos:
-            t_data = [
-                ["Equipos (Piezas Totales)", "Especificación Técnica", "Costo Unitario Interno"],
-                [f"Paneles ({datos['n_pan']} pzas)", f"{datos['panel'].get('marca', '')} {datos['panel'].get('potencia_w', 0)}W", f"${precio_p:,.2f}"],
-                ["Inversor", f"{datos['inversor'].get('marca', '')} {datos['inversor'].get('potencia_ac_kw', 0)}kW", f"${precio_i:,.2f}"],
-                ["Banco Baterías", f"{datos['n_bat']} uds ({marca_bat})", f"${precio_bat:,.2f}"],
-                ["PRECIO FINAL CLIENTE", f"Ahorro Anual: ${datos['ahorro_anual']:,.2f}", f"${datos['precio_venta']:,.2f}"]
-            ]
-        else:
-            t_data = [
-                ["Equipos Incluidos", "Especificación", "Cantidad Instalada"],
-                ["Paneles Solares", f"{datos['panel'].get('marca', '')} {datos['panel'].get('potencia_w', 0)}W", f"{datos['n_pan']} uds"],
-                ["Inversor Fotovoltaico", f"{datos['inversor'].get('marca', '')} {datos['inversor'].get('potencia_ac_kw', 0)}kW", "1 ud"],
-                ["Banco Baterías", f"{marca_bat}", f"{datos['n_bat']} uds"],
-                ["INVERSIÓN TOTAL", f"Ahorro Anual: ${datos['ahorro_anual']:,.2f}", f"${datos['precio_venta']:,.2f}"]
-            ]
+        # Encabezado Oficial
+        story.append(Paragraph(f"<b>MEMORIA TÉCNICA Y COTIZACIÓN FOTOVOLTAICA</b>", styles['Heading1']))
+        story.append(Paragraph(f"<b>CECyT 7 'Cuauhtémoc' - IPN</b> | <b>Folio:</b> {folio_str}", styles['Heading3']))
+        story.append(Paragraph(f"<b>Fecha de Emisión:</b> {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
+        story.append(Spacer(1, 15))
 
-        t = Table(t_data, colWidths=[2.2*inch, 3.2*inch, 1.6*inch])
-        t.setStyle(TableStyle([('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e293b')), ('TEXTCOLOR', (0,0), (-1,0), colors.white), ('GRID', (0,0), (-1,-1), 0.5, colors.black)]))
-        story.append(t)
+        # 1. MODELOS Y ESPECIFICACIÓN DE EQUIPOS (Sin desglose de precios)
+        story.append(Paragraph("<b>1. Modelos y Equipos a Utilizar</b>", styles['Heading2']))
+        story.append(Spacer(1, 5))
+
+        marca_bat = f"{datos['bateria'].get('marca', '')} {datos['bateria'].get('modelo', '')}" if datos['bateria'] else 'N/A'
+
+        t_equipos_data = [
+            ["Categoría", "Marca y Modelo Seleccionado", "Cantidad"],
+            ["Paneles Solares", f"{datos['panel'].get('marca', '')} {datos['panel'].get('modelo', '')} ({datos['panel'].get('potencia_w', 0)}W)", f"{datos['n_pan']} unidades"],
+            ["Inversor FV", f"{datos['inversor'].get('marca', '')} {datos['inversor'].get('modelo', '')} ({datos['inversor'].get('potencia_ac_kw', 0)} kW)", "1 unidad"],
+            ["Banco de Baterías", marca_bat, f"{datos['n_bat']} unidades" if datos['bateria'] else "No incluye"]
+        ]
+
+        t_equipos = Table(t_equipos_data, colWidths=[1.8*inch, 4.0*inch, 1.6*inch])
+        t_equipos.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e293b')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+            ('PADDING', (0,0), (-1,-1), 6)
+        ]))
+        story.append(t_equipos)
+        story.append(Spacer(1, 15))
+
+        # 2. ESQUEMA DE TIEMPO DE RECUPERACIÓN (ROI Y PROYECCIONES)
+        story.append(Paragraph("<b>2. Esquema de Tiempo de Recuperación e Impacto Financiero</b>", styles['Heading2']))
+        story.append(Spacer(1, 5))
+
+        ahorro_anual = datos['ahorro_anual']
+        roi_anos = datos['roi']
+        precio_total = datos['precio_venta']
+
+        t_roi_data = [
+            ["Concepto Financiero", "Proyección Estimada"],
+            ["Tiempo Estimado de Retorno de Inversión (ROI)", f"{roi_anos:.1f} Años"],
+            ["Ahorro Estimado Bimestral en Recibo CFE", f"${(ahorro_anual / 6.0):,.2f} MXN"],
+            ["Ahorro Estimado Anual", f"${ahorro_anual:,.2f} MXN / Año"],
+            ["Ahorro Acumulado Proyectado a 10 Años", f"${(ahorro_anual * 10):,.2f} MXN"],
+            ["Ahorro Acumulado Proyectado a 25 Años (Vida Útil)", f"${(ahorro_anual * 25):,.2f} MXN"]
+        ]
+
+        t_roi = Table(t_roi_data, colWidths=[4.4*inch, 3.0*inch])
+        t_roi.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+            ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#dcfce7')),
+            ('TEXTCOLOR', (0,1), (-1,1), colors.HexColor('#14532d')),
+            ('FONTNAME', (0,1), (-1,1), 'Helvetica-Bold'),
+            ('PADDING', (0,0), (-1,-1), 6)
+        ]))
+        story.append(t_roi)
+        story.append(Spacer(1, 15))
+
+        # 3. PRECIO FINAL (SOLO EL TOTAL SIN DESGLOSAR INDIVIDUALMENTE)
+        story.append(Paragraph("<b>3. Resumen Financiero Total</b>", styles['Heading2']))
+        story.append(Spacer(1, 5))
+
+        t_precio_data = [
+            ["INVERSIÓN TOTAL FINAL DEL SISTEMA (INSTALADO)", f"${precio_total:,.2f} MXN"]
+        ]
+        t_precio = Table(t_precio_data, colWidths=[4.4*inch, 3.0*inch])
+        t_precio.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#1e293b')),
+            ('TEXTCOLOR', (0,0), (-1,-1), colors.HexColor('#38bdf8')),
+            ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,0), (-1,-1), 11),
+            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#38bdf8')),
+            ('PADDING', (0,0), (-1,-1), 10)
+        ]))
+        story.append(t_precio)
+
         doc.build(story)
 
 # ==============================================================================
@@ -515,15 +569,24 @@ else:
 
             costo_kwh = st.number_input("Costo por kWh (MXN)", value=3.50)
             
-            # Recarga dinámica de configuración de ganancia del usuario
             db.usuarios = db._cargar_usuarios()
             usr_data_fresco = db.usuarios.get(usuario_actual, {})
-            ganancia_visible = rol_usuario != "usuario" or usr_data_fresco.get("ver_ganancia", False)
             
-            if ganancia_visible:
-                ganancia_pct = st.slider("% Ganancia Comercial", 0.0, 100.0, float(usr_data_fresco.get('ganancia_pct', 40.0)))
+            # RESTRICCIÓN: SOLO SOCIOS (admin_tec) O ADMIN PRINCIPAL (admin) PUEDEN ACTIVAR, DESACTIVAR Y MOVER GANANCIAS
+            es_socio_o_admin = rol_usuario in ["admin", "admin_tec"]
+            
+            if es_socio_o_admin:
+                activar_ganancia = st.toggle("Activar / Modificar Ganancia Comercial", value=True)
+                if activar_ganancia:
+                    val_def = float(min(50.0, max(0.0, usr_data_fresco.get('ganancia_pct', 40.0))))
+                    # ESPACIO DE ENTRADA NUMÉRICA (0% A 50%) EN LUGAR DE LÍNEA MOVIBLE
+                    ganancia_pct = st.number_input("% Ganancia Comercial (0.0% a 50.0%)", min_value=0.0, max_value=50.0, value=val_def, step=0.5)
+                else:
+                    ganancia_pct = 0.0
             else:
+                # LOS CLIENTES NO PUEDEN MOVER LA GANANCIA NI ACTIVARLA/DESACTIVARLA
                 ganancia_pct = float(usr_data_fresco.get('ganancia_pct', 25.0))
+                st.info(f"🔒 Porcentaje de Ganancia Aplicado: **{ganancia_pct}%** (Protegido por el Administrador)")
 
         if st.button("⚡ Calcular y Cotizar", type="primary"):
             try:
@@ -553,9 +616,8 @@ else:
                     folio_str = f"{rol_prefijo}-{usuario_actual.upper()[:10]}-{contador_actual:03d}"
                     
                     nombre_archivo = f"Cotizacion_{folio_str}.pdf"
-                    mostrar_precios = rol_usuario != "usuario" or usr_data_fresco.get("ver_ganancia", False)
                     
-                    GeneradorReportes.construir_pdf(res, folio_str, nombre_archivo, mostrar_precios)
+                    GeneradorReportes.construir_pdf(res, folio_str, nombre_archivo)
                     
                     db.registrar_cotizacion({
                         "fecha_hora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -718,9 +780,9 @@ else:
                     c_data = db.usuarios[cliente_sel]
                     col_c1, col_c2 = st.columns(2)
                     with col_c1:
-                        nuevo_ver_ganancia = st.toggle("Permitir que el cliente vea y edite su ganancia", value=c_data.get("ver_ganancia", False))
+                        nuevo_ver_ganancia = st.toggle("Permitir que el cliente vea su ganancia", value=c_data.get("ver_ganancia", False))
                     with col_c2:
-                        nuevo_pct = st.number_input("Porcentaje de Ganancia Fijo (%)", min_value=0.0, max_value=100.0, value=float(c_data.get("ganancia_pct", 25.0)), step=1.0)
+                        nuevo_pct = st.number_input("Porcentaje de Ganancia Fijo (%)", min_value=0.0, max_value=50.0, value=float(min(50.0, c_data.get("ganancia_pct", 25.0))), step=1.0)
                         
                     if st.button("💾 Guardar Configuración de Ganancia", type="primary"):
                         db.usuarios[cliente_sel]["ver_ganancia"] = nuevo_ver_ganancia
@@ -731,7 +793,7 @@ else:
             else:
                 st.info("No hay clientes registrados en el sistema.")
 
-    # --- PESTAÑA 5: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO ---
+    # --- PESTAÑA 5: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO (EXCLUSIVA PARA ADMIN) ---
     if rol_usuario == "admin" and len(tabs) >= 6:
         with tabs[5]:
             st.header("🛡️ Panel de Administración Principal")
@@ -740,7 +802,6 @@ else:
             with col_ref1:
                 st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
             with col_ref2:
-                # AUTORREFRESCO CADA 1 MINUTO (60 SEGUNDOS)
                 auto_refresh = st.toggle("⏱️ Activar Auto-Refresco (cada 1 min)")
                 st.caption("⚠️ Permite trabajar cómodamente en formularios sin interrupciones repentinas.")
 
@@ -806,7 +867,6 @@ else:
             st.markdown("---")
             st.subheader("➕ Crear Nuevo Perfil de Usuario")
             
-            # FORMULARIO CON LIMPIEZA AUTOMÁTICA AL ENVIAR (clear_on_submit=True)
             with st.form("crear_usuario_form", clear_on_submit=True):
                 nuevo_usr_id = st.text_input("Nombre de Usuario (Login)").strip()
                 nuevo_usr_pass = st.text_input("Contraseña del Usuario", type="password").strip()
@@ -818,7 +878,6 @@ else:
                     db.usuarios = db._cargar_usuarios()
                     if not nuevo_usr_id or not nuevo_usr_pass:
                         st.warning("⚠️ Debes rellenar el nombre de usuario y la contraseña.")
-                    # CONDICIÓN DE SEGURIDAD: IMPIDE REGISTRAR NOMBRES DE USUARIO REPETIDOS
                     elif nuevo_usr_id in db.usuarios:
                         st.error(f"❌ El nombre de usuario '{nuevo_usr_id}' ya existe. Debes usar un nombre de usuario único.")
                     else:
@@ -842,7 +901,7 @@ else:
                             "contador_folios": 1
                         }
                         db.guardar_usuarios()
-                        st.success(f"✅ ¡Perfil '{nuevo_usr_id}' creado exitosamente como {tipo_rol_label}! Los datos ingresados se han borrado del formulario.")
+                        st.success(f"✅ ¡Perfil '{nuevo_usr_id}' creado exitosamente como {tipo_rol_label}!")
                         st.rerun()
 
             st.markdown("---")
@@ -857,22 +916,26 @@ else:
                     st.error("❌ Contraseña de Administrador incorrecta.")
 
             st.markdown("---")
-            st.subheader("✏️ Gestión de Cuentas (Bajas, Bloqueos y Cambios)")
+            # === SECCIÓN DE GESTIÓN DE CUENTAS: BLOQUEOS, CONTRASEÑAS Y CAMBIO DE ROL ===
+            st.subheader("✏️ Gestión de Cuentas (Bajas, Cambios de Rol y Contraseñas)")
             lista_usrs = [u for u in db.usuarios.keys() if u != 'admin']
             target_usr = st.selectbox("Seleccionar Cuenta (El Administrador está protegido)", lista_usrs if lista_usrs else ["Sin usuarios"])
             
             if target_usr and target_usr != "Sin usuarios":
-                col_g1, col_g2 = st.columns(2)
+                col_g1, col_g2, col_g3 = st.columns(3)
+                
+                # Columna 1: Estado / Bloqueo
                 with col_g1:
+                    st.markdown("**Estado de la cuenta**")
                     if target_usr == "admin":
-                        st.error("🚫 ¡ACCIÓN PROHIBIDA! La cuenta de Administrador no puede ser dada de baja.")
+                        st.error("🚫 Cuenta protegida.")
                     elif db.usuarios[target_usr].get("activo", True):
-                        if st.button("🔴 Dar de Baja / Bloquear Acceso en Vivo", type="primary"):
+                        if st.button("🔴 Bloquear Acceso", type="primary"):
                             db.usuarios[target_usr]["activo"] = False
                             db.usuarios[target_usr]["active_sessions"] = []
                             db.usuarios[target_usr]["sesiones"] = 0
                             db.guardar_usuarios()
-                            st.success(f"Cuenta '{target_usr}' bloqueada al instante.")
+                            st.success(f"Cuenta '{target_usr}' bloqueada.")
                             st.rerun()
                     else:
                         if st.button("🟢 Activar Cuenta", type="primary"):
@@ -880,15 +943,46 @@ else:
                             db.guardar_usuarios()
                             st.success(f"Cuenta '{target_usr}' activada.")
                             st.rerun()
+
+                # Columna 2: Cambio de Contraseña
                 with col_g2:
-                    nuevo_pass_usr = st.text_input("Nueva contraseña para el usuario", type="password")
-                    if st.button("💾 Guardar Nueva Contraseña"):
+                    st.markdown("**Cambiar Contraseña**")
+                    nuevo_pass_usr = st.text_input("Nueva contraseña", type="password", key=f"pass_{target_usr}")
+                    if st.button("💾 Guardar Contraseña"):
                         if nuevo_pass_usr:
                             db.usuarios[target_usr]["pass"] = nuevo_pass_usr
                             db.guardar_usuarios()
-                            st.success("✅ Contraseña actualizada con éxito.")
+                            st.success("✅ Contraseña actualizada.")
 
-            # REPETICIÓN CADA 60 SEGUNDOS (1 MINUTO) AL FINAL DE LA PESTAÑA ADMIN
+                # Columna 3: Cambio de Rol (EXCLUSIVO PARA EL ADMINISTRADOR PRINCIPAL)
+                with col_g3:
+                    st.markdown("**Cambiar Rol de Usuario**")
+                    rol_actual = db.usuarios[target_usr].get("rol", "usuario")
+                    rol_idx_def = 1 if rol_actual == "admin_tec" else 0
+                    
+                    nuevo_rol_sel = st.selectbox(
+                        "Seleccionar nuevo rol",
+                        ["Cliente (Usuario Estándar)", "Socio / Administrador Técnico"],
+                        index=rol_idx_def,
+                        key=f"rol_sel_{target_usr}"
+                    )
+                    
+                    if st.button("🔄 Actualizar Rol"):
+                        rol_mapeado = "admin_tec" if "Socio" in nuevo_rol_sel else "usuario"
+                        if rol_mapeado != rol_actual:
+                            db.usuarios[target_usr]["rol"] = rol_mapeado
+                            if rol_mapeado == "admin_tec":
+                                db.usuarios[target_usr]["ver_ganancia"] = True
+                                db.usuarios[target_usr]["ganancia_pct"] = 40.0
+                            else:
+                                db.usuarios[target_usr]["ver_ganancia"] = False
+                                db.usuarios[target_usr]["ganancia_pct"] = 25.0
+                            db.guardar_usuarios()
+                            st.success(f"✅ ¡El rol de '{target_usr}' cambió a {nuevo_rol_sel}!")
+                            st.rerun()
+                        else:
+                            st.info("El usuario ya tiene ese rol asignado.")
+
             if auto_refresh:
                 time.sleep(60)
                 st.rerun()
