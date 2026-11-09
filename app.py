@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Streamlit Premium (Sincronización Total en Vivo)
+# Sistema Integral FV - Sincronización Experta (Asesor Inteligente ➔ Cotizador)
 # ==============================================================================
 
 import os
@@ -37,7 +37,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. GESTOR DE SISTEMA Y BASE DE DATOS (CON SINCRONIZACIÓN EN TIEMPO REAL)
+# 1. GESTOR DE SISTEMA Y BASE DE DATOS
 # ==============================================================================
 class GestorSistemaFV:
     def __init__(self, ruta_dir: str = "."):
@@ -182,29 +182,27 @@ def init_db():
 db = init_db()
 
 # ==============================================================================
-# 2. MOTOR DE CÁLCULO E INGENIERÍA (INCLUYENDO ASESOR INTELIGENTE)
+# 2. MOTOR DE CÁLCULO E INGENIERÍA (CON ASESOR INTELIGENTE SINCRONIZADO)
 # ==============================================================================
 class MotorCalculoFV:
     @staticmethod
-    def evaluar_mejor_panel(prioridad: str, area_disp: float):
+    def evaluar_mejor_panel(prioridad: str):
         evaluados = []
         for p in db.obtener_paneles():
-            cabe = p.get('area_m2', 2) <= area_disp
             if prioridad == 'Espacio Reducido': pt = (p.get('eficiencia_pct', 20) * 2) + (p.get('potencia_w', 1) / max(0.1, p.get('area_m2', 1)))
             elif prioridad == 'Economía': pt = (p.get('potencia_w', 1) / max(1, p.get('precio_mxn', 1))) * 1000
             else: pt = p.get('eficiencia_pct', 20)
-            evaluados.append({'panel': p, 'puntaje': pt, 'cabe': cabe})
+            evaluados.append({'panel': p, 'puntaje': pt})
         return sorted(evaluados, key=lambda x: x['puntaje'], reverse=True)
 
     @staticmethod
-    def evaluar_mejor_inversor(potencia_sistema_kwp: float, prioridad: str):
+    def evaluar_mejor_inversor(prioridad: str):
         evaluados = []
         for inv in db.obtener_inversores():
-            apto = inv.get('potencia_ac_kw', 1) >= (potencia_sistema_kwp * 0.70)
             if prioridad == 'Máxima Eficiencia': pt = inv.get('eficiencia_pct', 97) * 10
             elif prioridad == 'Economía': pt = (inv.get('potencia_ac_kw', 1) / max(1, inv.get('precio_mxn', 1))) * 10000
             else: pt = inv.get('eficiencia_pct', 97) + (inv.get('num_mppt', 2) * 2)
-            evaluados.append({'inversor': inv, 'puntaje': pt, 'apto': apto})
+            evaluados.append({'inversor': inv, 'puntaje': pt})
         return sorted(evaluados, key=lambda x: x['puntaje'], reverse=True)
 
     @staticmethod
@@ -299,6 +297,11 @@ if 'logged_in' not in st.session_state:
     st.session_state.usuario = ""
     st.session_state.rol = ""
 
+# Inicializar memoria para la recomendación del asesor inteligente
+if 'rec_panel_id' not in st.session_state: st.session_state.rec_panel_id = None
+if 'rec_inv_id' not in st.session_state: st.session_state.rec_inv_id = None
+if 'rec_bat_id' not in st.session_state: st.session_state.rec_bat_id = None
+
 # --- PANTALLA DE LOGIN ---
 if not st.session_state.logged_in:
     st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🔒 Acceso Sistema FV CECyT 7</h2>", unsafe_allow_html=True)
@@ -353,38 +356,65 @@ else:
         st.session_state.rol = ""
         st.rerun()
 
-    # Pestañas dinámicas según el rol solicitado
+    # Pestañas dinámicas según rol
     if rol_usuario == "admin":
         tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente", "📦 Inventario & CRUD", "📜 Historial", "🛡️ Admin Principal"])
     elif rol_usuario == "admin_tec":
-        # Los socios (admin_tec) también tienen control total de inventario y cotizaciones
         tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente", "📦 Inventario & CRUD", "📜 Historial"])
     else:
-        # Los clientes solamente pueden ver el cotizador y el asesor inteligente
         tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente"])
 
-    # --- PESTAÑA 1: COTIZADOR ---
+    # --- PESTAÑA 1: COTIZADOR (SINCRONIZADO CON ASESOR) ---
     with tabs[0]:
         st.header("⚡ Dimensionamiento Fotovoltaico y Cotización")
         
+        # Opciones de equipos
+        lista_paneles = db.obtener_paneles()
+        lista_inversores = db.obtener_inversores()
+        lista_baterias = db.obtener_baterias()
+
+        paneles_opts = {f"{p['marca']} {p['modelo']} (${p['precio_mxn']:,.0f})": p['id'] for p in lista_paneles}
+        inversores_opts = {f"{i['marca']} {i['modelo']} (${i['precio_mxn']:,.0f})": i['id'] for i in lista_inversores}
+        
+        baterias_opts = {"Ninguna / No Aplica": ""}
+        baterias_opts.update({f"{b['marca']} {b['modelo']} (${b['precio_mxn']:,.0f})": b['id'] for b in lista_baterias})
+
+        # Índices por defecto basados en la recomendación del Asesor Inteligente si existe
+        default_p_idx = 0
+        if st.session_state.rec_panel_id:
+            for idx, (label, pid) in enumerate(paneles_opts.items()):
+                if pid == st.session_state.rec_panel_id:
+                    default_p_idx = idx
+                    break
+
+        default_i_idx = 0
+        if st.session_state.rec_inv_id:
+            for idx, (label, iid) in enumerate(inversores_opts.items()):
+                if iid == st.session_state.rec_inv_id:
+                    default_i_idx = idx
+                    break
+
+        default_b_idx = 0
+        if st.session_state.rec_bat_id:
+            for idx, (label, bid) in enumerate(baterias_opts.items()):
+                if bid == st.session_state.rec_bat_id:
+                    default_b_idx = idx
+                    break
+
         col_a, col_b = st.columns(2)
         with col_a:
             cons_bim = st.number_input("Consumo Bimestral (kWh)", min_value=50, max_value=10000, value=550)
             hsp = st.slider("Horas Sol Pico (HSP)", 3.0, 7.0, 5.3)
             
-            paneles_opts = {f"{p['marca']} {p['modelo']} (${p['precio_mxn']:,.0f})": p['id'] for p in db.obtener_paneles()}
-            sel_panel_label = st.selectbox("Panel Solar", list(paneles_opts.keys()))
+            sel_panel_label = st.selectbox("Panel Solar", list(paneles_opts.keys()), index=default_p_idx)
             pid = paneles_opts[sel_panel_label]
 
-            inversores_opts = {f"{i['marca']} {i['modelo']} (${i['precio_mxn']:,.0f})": i['id'] for i in db.obtener_inversores()}
-            sel_inv_label = st.selectbox("Inversor", list(inversores_opts.keys()))
+            sel_inv_label = st.selectbox("Inversor", list(inversores_opts.keys()), index=default_i_idx)
             iid = inversores_opts[sel_inv_label]
 
         with col_b:
             modo = st.selectbox("Modo de Operación", ['Interconectado (CFE)', 'Híbrido'])
-            baterias_opts = {"Ninguna / No Aplica": ""}
-            baterias_opts.update({f"{b['marca']} {b['modelo']} (${b['precio_mxn']:,.0f})": b['id'] for b in db.obtener_baterias()})
-            sel_bat_label = st.selectbox("Banco de Baterías", list(baterias_opts.keys()))
+            sel_bat_label = st.selectbox("Banco de Baterías", list(baterias_opts.keys()), index=default_b_idx)
             bid = baterias_opts[sel_bat_label]
 
             costo_kwh = st.number_input("Costo por kWh (MXN)", value=3.50)
@@ -448,10 +478,10 @@ else:
             except Exception as e:
                 st.error(f"❌ Error al generar PDF: {e}")
 
-    # --- PESTAÑA 2: ASESOR INTELIGENTE ---
+    # --- PESTAÑA 2: ASESOR INTELIGENTE CON CARGA AUTOMÁTICA AL COTIZADOR ---
     with tabs[1]:
         st.header("🧠 Asesor Inteligente de Selección de Equipos")
-        st.markdown("Evalúa y obtén recomendaciones automáticas del mejor equipo fotovoltaico según tus necesidades.")
+        st.markdown("Selecciona tus prioridades y el asesor recomendará el equipo ideal, enviándolo directamente al cotizador con un solo clic.")
         
         col_as1, col_as2, col_as3 = st.columns(3)
         with col_as1:
@@ -462,32 +492,37 @@ else:
             prio_b = st.selectbox("Prioridad de Batería", ['Mayor Vida Útil', 'Mayor Capacidad', 'Economía'])
 
         if st.button("🧠 Ejecutar Recomendación Experta"):
-            rank_p = MotorCalculoFV.evaluar_mejor_panel(prio_p, 100)
-            rank_i = MotorCalculoFV.evaluar_mejor_inversor(3.0, prio_i)
+            rank_p = MotorCalculoFV.evaluar_mejor_panel(prio_p)
+            rank_i = MotorCalculoFV.evaluar_mejor_inversor(prio_i)
             rank_b = MotorCalculoFV.evaluar_mejor_bateria(prio_b)
             
-            st.success("✅ ¡Análisis y recomendación completados con éxito!")
-            
-            col_r1, col_r2, col_r3 = st.columns(3)
-            with col_r1:
-                if rank_p:
+            if rank_p and rank_i and rank_b:
+                # Guardar selección recomendada en la sesión para sincronizarla con el cotizador
+                st.session_state.rec_panel_id = rank_p[0]['panel']['id']
+                st.session_state.rec_inv_id = rank_i[0]['inversor']['id']
+                st.session_state.rec_bat_id = rank_b[0]['bateria']['id']
+                
+                st.success("✅ ¡Recomendación calculada y sincronizada con el Cotizador con éxito!")
+                
+                col_r1, col_r2, col_r3 = st.columns(3)
+                with col_r1:
                     p_rec = rank_p[0]['panel']
                     st.markdown(f"**☀️ Panel Recomendado:**\n* **{p_rec['marca']} {p_rec['modelo']}**\n* Potencia: {p_rec['potencia_w']}W\n* Precio: ${p_rec['precio_mxn']:,.2f} MXN")
-            with col_r2:
-                if rank_i:
+                with col_r2:
                     i_rec = rank_i[0]['inversor']
                     st.markdown(f"**⚡ Inversor Recomendado:**\n* **{i_rec['marca']} {i_rec['modelo']}**\n* Capacidad: {i_rec['potencia_ac_kw']} kW\n* Precio: ${i_rec['precio_mxn']:,.2f} MXN")
-            with col_r3:
-                if rank_b:
+                with col_r3:
                     b_rec = rank_b[0]['bateria']
                     st.markdown(f"**🔋 Batería Recomendada:**\n* **{b_rec['marca']} {b_rec['modelo']}**\n* Energía: {b_rec['energia_kwh']} kWh\n* Precio: ${b_rec['precio_mxn']:,.2f} MXN")
+                
+                st.info("💡 **¡Listo!** Ve a la pestaña **⚡ Cotizador** para ver estos equipos seleccionados automáticamente.")
 
-    # --- PESTAÑA 3: INVENTARIO & CRUD (Disponible para Admin y Socios en tiempo real) ---
+    # --- PESTAÑA 3: INVENTARIO & CRUD (Admin y Socios) ---
     indice_inv = 2 if rol_usuario in ["admin", "admin_tec"] else None
     if indice_inv is not None and len(tabs) > indice_inv:
         with tabs[indice_inv]:
             st.header("📦 Gestión y Control de Inventario de Equipos")
-            st.markdown("Como Administrador o Socio, cualquier cambio que realices se sincroniza y actualiza instantáneamente para todos los usuarios conectados.")
+            st.markdown("Agrega, edita o elimina equipos. Los cambios se sincronizan en tiempo real para todos los usuarios.")
             
             tipo_cat = st.selectbox("Seleccionar Categoría de Equipo", ["paneles", "inversores", "baterias"])
             
