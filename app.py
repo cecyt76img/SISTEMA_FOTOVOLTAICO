@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Definitiva con Cambio de Contraseña Autoservicio
+# Sistema Integral FV - Control de Ganancias Interactivo y Protección de Admin
 # ==============================================================================
 
 import os
@@ -495,10 +495,10 @@ else:
 
     usr_data = usr_info
 
-    # SIDEBAR: Muestra únicamente el Nombre de Usuario (Se eliminó la etiqueta 'Rol')
+    # SIDEBAR: Muestra únicamente el Nombre de Usuario (Sin etiqueta de Rol)
     st.sidebar.markdown(f"### ☀️ CECyT 7\n**Usuario:** {usuario_actual.upper()}")
     
-    # AUTOSERVICIO DE CAMBIO DE CONTRASEÑA PARA CUALQUIER USUARIO (Cliente, Socio o Admin)
+    # AUTOSERVICIO DE CAMBIO DE CONTRASEÑA PARA CUALQUIER USUARIO
     with st.sidebar.expander("🔑 Cambiar mi Contraseña"):
         with st.form("form_autoservicio_pass", clear_on_submit=True):
             pass_nueva_mi = st.text_input("Nueva Contraseña", type="password")
@@ -794,27 +794,63 @@ else:
     if indice_cli is not None and len(tabs) > indice_cli:
         with tabs[indice_cli]:
             st.header("👥 Gestión Integral de Ganancias de Usuarios")
-            st.markdown("Permite a los **Socios y al Administrador Principal** consultar, activar/desactivar y ajustar exactamente el porcentaje de ganancia (**del 0.0% al 100.0%**) para cualquier usuario del sistema.")
+            st.markdown("Permite consultar y editar interactivamente las ganancias y permisos (**0.0% a 100.0%**). Puedes modificar los datos directamente en la tabla o mediante las casillas inferiores.")
 
             db.usuarios = db._cargar_usuarios()
 
-            # TABLA RESUMEN DE GANANCIAS (MUESTRA SÓLO EL NOMBRE DE USUARIO)
-            st.subheader("📋 Resumen Actual de Ganancias Configuradas en el Sistema")
-            resumen_usrs = []
-            for u, d in db.usuarios.items():
-                resumen_usrs.append({
+            # FILTRADO DE SEGURIDAD: Los socios (admin_tec) NO pueden ver ni modificar los datos del Admin Principal
+            if rol_usuario == "admin":
+                usrs_visibles = list(db.usuarios.keys())
+            else:
+                usrs_visibles = [u for u, d in db.usuarios.items() if d.get('rol') != 'admin']
+
+            # TABLA INTERACTIVA (EDICIÓN DIRECTA DESDE LA TABLA)
+            st.subheader("📋 Resumen y Edición Directa de Ganancias")
+            st.caption("💡 Haz clic directamente en las casillas de la tabla para cambiar 'Permiso Edición' o 'Ganancia Activa', edita el porcentaje y presiona 'Guardar Cambios de la Tabla'.")
+
+            filas_tabla = []
+            for u in usrs_visibles:
+                d = db.usuarios[u]
+                filas_tabla.append({
                     "Usuario": u,
-                    "% Ganancia Asignada": f"{d.get('ganancia_pct', 0.0):.1f}%",
-                    "Estado Ganancia": "🟢 ACTIVADA" if d.get('aplicar_ganancia', True) else "🔴 DESACTIVADA (0%)",
-                    "Permiso Edición": "✅ SÍ" if d.get('ver_ganancia', False) or d.get('rol') in ['admin', 'admin_tec'] else "🔒 BLOQUEADO (Fijo)"
+                    "% Ganancia": float(d.get("ganancia_pct", 25.0)),
+                    "Ganancia Activa": bool(d.get("aplicar_ganancia", True)),
+                    "Permiso Edición": bool(d.get("ver_ganancia", False))
                 })
-            st.dataframe(pd.DataFrame(resumen_usrs), use_container_width=True)
+
+            df_ganancias = pd.DataFrame(filas_tabla)
+
+            df_editado = st.data_editor(
+                df_ganancias,
+                column_config={
+                    "Usuario": st.column_config.TextColumn("Usuario", disabled=True),
+                    "% Ganancia": st.column_config.NumberColumn("% Ganancia (0-100%)", min_value=0.0, max_value=100.0, step=0.5, format="%.1f%%"),
+                    "Ganancia Activa": st.column_config.CheckboxColumn("Ganancia Activa (On/Off)"),
+                    "Permiso Edición": st.column_config.CheckboxColumn("Permiso Edición (Sí/No)", help="Desmarcar para bloquear al cliente")
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="editor_tabla_ganancias_v18"
+            )
+
+            if st.button("💾 Guardar Cambios de la Tabla", type="primary"):
+                for idx, row in df_editado.iterrows():
+                    u_target = row["Usuario"]
+                    if u_target in db.usuarios:
+                        # Bloqueo estricto para evitar que un socio modifique al admin
+                        if u_target == "admin" and rol_usuario != "admin":
+                            continue
+                        db.usuarios[u_target]["ganancia_pct"] = float(row["% Ganancia"])
+                        db.usuarios[u_target]["aplicar_ganancia"] = bool(row["Ganancia Activa"])
+                        db.usuarios[u_target]["ver_ganancia"] = bool(row["Permiso Edición"])
+                db.guardar_usuarios()
+                st.success("✅ ¡Tabla de ganancias actualizada correctamente!")
+                st.rerun()
 
             st.markdown("---")
-            st.subheader("✏️ Modificar Parámetros de Ganancia por Usuario")
+            st.subheader("✏️ Modificación Individual por Formulario")
             
-            todos_usuarios = list(db.usuarios.keys())
-            usr_seleccionado = st.selectbox("Seleccionar Cuenta a Modificar", todos_usuarios)
+            usr_seleccionado = st.selectbox("Seleccionar Cuenta a Modificar", usrs_visibles)
 
             if usr_seleccionado:
                 u_datos = db.usuarios[usr_seleccionado]
@@ -831,19 +867,22 @@ else:
 
                 with col_g3:
                     if u_datos.get('rol') in ['admin', 'admin_tec']:
-                        st.info("ℹ️ Socios y Administrador siempre tienen permiso de edición.")
+                        st.info("ℹ️ Los socios y administradores siempre tienen permiso de edición.")
                         nuevo_ver_perm = True
                     else:
                         nuevo_ver_perm = st.toggle("Permitir que el cliente edite su ganancia", value=u_datos.get("ver_ganancia", False), key=f"togg_ver_{usr_seleccionado}")
 
-                if st.button(f"💾 Guardar Cambios para '{usr_seleccionado}'", type="primary"):
-                    db.usuarios[usr_seleccionado]["aplicar_ganancia"] = nuevo_aplicar
-                    db.usuarios[usr_seleccionado]["ganancia_pct"] = float(nuevo_pct_val)
-                    db.usuarios[usr_seleccionado]["ver_ganancia"] = nuevo_ver_perm
-                    db.guardar_usuarios()
-                    
-                    st.success(f"✅ ¡Parámetros de '{usr_seleccionado}' actualizados correctamente! (Ganancia: {nuevo_pct_val}%, Estado: {'ACTIVA' if nuevo_aplicar else 'DESACTIVADA'}).")
-                    st.rerun()
+                if st.button(f"💾 Guardar Cambios Individuales para '{usr_seleccionado}'", type="primary"):
+                    if usr_seleccionado == "admin" and rol_usuario != "admin":
+                        st.error("🚫 No tienes permisos para modificar al Administrador Principal.")
+                    else:
+                        db.usuarios[usr_seleccionado]["aplicar_ganancia"] = nuevo_aplicar
+                        db.usuarios[usr_seleccionado]["ganancia_pct"] = float(nuevo_pct_val)
+                        db.usuarios[usr_seleccionado]["ver_ganancia"] = nuevo_ver_perm
+                        db.guardar_usuarios()
+                        
+                        st.success(f"✅ ¡Parámetros de '{usr_seleccionado}' actualizados correctamente! (Ganancia: {nuevo_pct_val}%, Estado: {'ACTIVA' if nuevo_aplicar else 'DESACTIVADA'}).")
+                        st.rerun()
 
     # --- PESTAÑA 6: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO (EXCLUSIVA PARA ADMIN) ---
     if rol_usuario == "admin" and len(tabs) >= 6:
@@ -957,7 +996,7 @@ else:
 
             st.markdown("---")
             st.subheader("🔑 Auditoría de Contraseñas (Segura con Clave de Admin)")
-            st.caption("Muestra las contraseñas actualizadas de todos los usuarios (incluso si la cambiaron por su cuenta).")
+            st.caption("Muestra las contraseñas actualizadas de todos los usuarios (incluso si las cambiaron desde su barra lateral).")
             pass_admin_check = st.text_input("Introduce tu contraseña de Administrador para revelar claves", type="password")
             if st.button("👁️ Revelar Credenciales"):
                 db.usuarios = db._cargar_usuarios()
