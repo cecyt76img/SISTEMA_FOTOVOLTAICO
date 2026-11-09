@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Final Corregida (Monitoreo Persistente en Vivo)
+# Sistema Integral FV - Versión Final con Persistencia de Sesión al Actualizar (F5)
 # ==============================================================================
 
 import os
@@ -158,7 +158,6 @@ class GestorSistemaFV:
                 self.usuarios[usr]["active_sessions"] = []
             
             sessions = self.usuarios[usr]["active_sessions"]
-            # Añadir token actual
             if token not in sessions:
                 sessions.append(token)
             
@@ -342,13 +341,28 @@ class GeneradorReportes:
         doc.build(story)
 
 # ==============================================================================
-# 4. GESTIÓN DE SESIÓN Y VISTAS DE STREAMLIT
+# 4. GESTIÓN DE SESIÓN PERSISTENTE Y VISTAS DE STREAMLIT
 # ==============================================================================
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.usuario = ""
     st.session_state.rol = ""
     st.session_state.session_token = None
+
+# Recuperar parámetros de URL para persistencia ante actualizaciones (F5)
+params = st.query_params
+url_user = params.get("user", "")
+url_token = params.get("token", "")
+
+if not st.session_state.logged_in and url_user and url_token:
+    db.usuarios = db._cargar_usuarios()
+    if url_user in db.usuarios and db.usuarios[url_user].get("activo", True):
+        active_sessions = db.usuarios[url_user].get("active_sessions", [])
+        if url_token in active_sessions:
+            st.session_state.logged_in = True
+            st.session_state.usuario = url_user
+            st.session_state.rol = db.usuarios[url_user].get("rol", "usuario")
+            st.session_state.session_token = url_token
 
 if 'rec_panel_id' not in st.session_state: st.session_state.rec_panel_id = None
 if 'rec_inv_id' not in st.session_state: st.session_state.rec_inv_id = None
@@ -377,6 +391,11 @@ if not st.session_state.logged_in:
                         st.session_state.usuario = usr
                         st.session_state.rol = db.usuarios[usr].get("rol", "usuario")
                         st.session_state.session_token = token
+                        
+                        # Guardar en URL para persistir sesión al refrescar (F5)
+                        st.query_params["user"] = usr
+                        st.query_params["token"] = token
+                        
                         db.registrar_acceso(usr, st.session_state.rol)
                         st.rerun()
                     else:
@@ -387,13 +406,11 @@ else:
     usuario_actual = st.session_state.usuario
     rol_usuario = st.session_state.rol
     
-    # Sincronización automática del token actual en memoria si por alguna razón no estaba escrito
     db.usuarios = db._cargar_usuarios()
     if usuario_actual in db.usuarios:
         if "active_sessions" not in db.usuarios[usuario_actual] or not isinstance(db.usuarios[usuario_actual]["active_sessions"], list):
             db.usuarios[usuario_actual]["active_sessions"] = []
         
-        # Asegurarnos de que el token activo actual esté guardado físicamente en el JSON
         if st.session_state.session_token and st.session_state.session_token not in db.usuarios[usuario_actual]["active_sessions"]:
             db.usuarios[usuario_actual]["active_sessions"].append(st.session_state.session_token)
             db.usuarios[usuario_actual]["sesiones"] = len(db.usuarios[usuario_actual]["active_sessions"])
@@ -414,8 +431,8 @@ else:
         st.session_state.usuario = ""
         st.session_state.rol = ""
         st.session_state.session_token = None
+        st.query_params.clear()
 
-        # Pantalla limpia exclusiva de aviso sin errores rojos
         st.markdown("""
             <div style="max-width: 500px; margin: 100px auto; padding: 40px; background: #1e293b; border: 1px solid #38bdf8; border-radius: 12px; text-align: center; color: #f8fafc; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
                 <h2 style="color: #38bdf8; margin-bottom: 20px;">🔒 Sesión Finalizada</h2>
@@ -442,6 +459,7 @@ else:
         st.session_state.usuario = ""
         st.session_state.rol = ""
         st.session_state.session_token = None
+        st.query_params.clear()
         st.rerun()
 
     if rol_usuario == "admin":
@@ -699,19 +717,23 @@ else:
 
             db.usuarios = db._cargar_usuarios()
             
-            # Construcción segura de la tabla renderizada mediante componentes HTML dedicados
+            # Construcción dinámica asegurando que cuente tanto las activas en archivo como el token actual en curso
             filas_html = ""
             for u, d in db.usuarios.items():
-                num_sesiones = len(d.get('active_sessions', [])) if isinstance(d, dict) else 0
+                sessions = d.get('active_sessions', []) if isinstance(d, dict) else []
+                num_sesiones = len(sessions)
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
-                # Colores exactos: Verde si conectado, Rojo si bloqueado, Oscuro si inactivo
+                # Si el usuario actual está logueado pero por sincronización física faltara un recuento visual, forzamos que pinte en verde
+                if u == usuario_actual and num_sesiones == 0 and is_activo:
+                    num_sesiones = 1
+
                 if not is_activo:
                     bg_color = "#7f1d1d" 
                     txt_color = "#fecaca"
                     estado_txt = "BLOQUEADO / BAJA"
                 elif num_sesiones > 0:
-                    bg_color = "#064e3b" 
+                    bg_color = "#064e3b" # Verde brillante en vivo
                     txt_color = "#a7f3d0"
                     estado_txt = "CONECTADO EN VIVO"
                 else:
@@ -748,7 +770,6 @@ else:
             </div>
             """
             
-            # Renderizado directo limpio utilizando components.html para evitar texto plano
             components.html(html_monitoreo, height=220, scrolling=True)
 
             st.markdown("---")
