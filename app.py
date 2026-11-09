@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Final con Persistencia de Sesión al Actualizar (F5)
+# Sistema Integral FV - Versión Final Completa con Autorrefresco y Persistencia
 # ==============================================================================
 
 import os
@@ -15,6 +15,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
 import streamlit.components.v1 as components
+from streamlit_autorefresh import st_autorefresh
 
 # ReportLab - PDF y Vectorial
 from reportlab.lib.pagesizes import letter
@@ -180,8 +181,8 @@ class GestorSistemaFV:
                 if isinstance(sessions, list):
                     if token and token in sessions:
                         sessions.remove(token)
-                    elif sessions:
-                        sessions.pop()
+                    elif not token:
+                        sessions.clear()
                     self.usuarios[usr]["active_sessions"] = sessions
                     self.usuarios[usr]["sesiones"] = len(sessions)
                     self.guardar_usuarios()
@@ -349,7 +350,7 @@ if 'logged_in' not in st.session_state:
     st.session_state.rol = ""
     st.session_state.session_token = None
 
-# Recuperar parámetros de URL para persistencia ante actualizaciones (F5)
+# Recuperar parámetros de URL para persistencia al refrescar (F5)
 params = st.query_params
 url_user = params.get("user", "")
 url_token = params.get("token", "")
@@ -392,7 +393,6 @@ if not st.session_state.logged_in:
                         st.session_state.rol = db.usuarios[usr].get("rol", "usuario")
                         st.session_state.session_token = token
                         
-                        # Guardar en URL para persistir sesión al refrescar (F5)
                         st.query_params["user"] = usr
                         st.query_params["token"] = token
                         
@@ -407,15 +407,6 @@ else:
     rol_usuario = st.session_state.rol
     
     db.usuarios = db._cargar_usuarios()
-    if usuario_actual in db.usuarios:
-        if "active_sessions" not in db.usuarios[usuario_actual] or not isinstance(db.usuarios[usuario_actual]["active_sessions"], list):
-            db.usuarios[usuario_actual]["active_sessions"] = []
-        
-        if st.session_state.session_token and st.session_state.session_token not in db.usuarios[usuario_actual]["active_sessions"]:
-            db.usuarios[usuario_actual]["active_sessions"].append(st.session_state.session_token)
-            db.usuarios[usuario_actual]["sesiones"] = len(db.usuarios[usuario_actual]["active_sessions"])
-            db.guardar_usuarios()
-
     usr_info = db.usuarios.get(usuario_actual, {})
     active_tokens = usr_info.get("active_sessions", []) if isinstance(usr_info, dict) else []
     cuenta_activa = usr_info.get("activo", True) if isinstance(usr_info, dict) else True
@@ -705,35 +696,33 @@ else:
             else:
                 st.info("No hay cotizaciones registradas todavía.")
 
-    # --- PESTAÑA 5: ADMIN PRINCIPAL & AUDITORÍA DE CREDENCIALES ---
+    # --- PESTAÑA 5: ADMIN PRINCIPAL & AUTORREFRESCO EN TIEMPO REAL ---
     if rol_usuario == "admin" and len(tabs) >= 5:
         with tabs[4]:
             st.header("🛡️ Panel de Administración Principal")
             st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
             
-            if st.button("🔄 Actualizar Monitoreo de Sesiones"):
+            # Autorrefresco automático cada 2 segundos (2000 ms) para detectar entradas y salidas al instante
+            st_autorefresh(interval=2000, limit=None, key="admin_realtime_refresh")
+
+            if st.button("🔄 Actualizar Monitoreo Ahora"):
                 db.usuarios = db._cargar_usuarios()
                 st.rerun()
 
             db.usuarios = db._cargar_usuarios()
             
-            # Construcción dinámica asegurando que cuente tanto las activas en archivo como el token actual en curso
             filas_html = ""
             for u, d in db.usuarios.items():
                 sessions = d.get('active_sessions', []) if isinstance(d, dict) else []
                 num_sesiones = len(sessions)
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
-                # Si el usuario actual está logueado pero por sincronización física faltara un recuento visual, forzamos que pinte en verde
-                if u == usuario_actual and num_sesiones == 0 and is_activo:
-                    num_sesiones = 1
-
                 if not is_activo:
                     bg_color = "#7f1d1d" 
                     txt_color = "#fecaca"
                     estado_txt = "BLOQUEADO / BAJA"
                 elif num_sesiones > 0:
-                    bg_color = "#064e3b" # Verde brillante en vivo
+                    bg_color = "#064e3b" # Verde brillante en vivo estricto
                     txt_color = "#a7f3d0"
                     estado_txt = "CONECTADO EN VIVO"
                 else:
