@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Streamlit Premium (Gestión FIFO de Sesiones)
+# Sistema Integral FV - Versión Streamlit Premium (Login y Sesiones Corregidas)
 # ==============================================================================
 
 import os
@@ -38,7 +38,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. GESTOR DE SISTEMA Y BASE DE DATOS (CON GESTIÓN DE SESIONES FIFO)
+# 1. GESTOR DE SISTEMA Y BASE DE DATOS
 # ==============================================================================
 class GestorSistemaFV:
     def __init__(self, ruta_dir: str = "."):
@@ -99,12 +99,27 @@ class GestorSistemaFV:
         try:
             with open(self.ruta_usuarios, 'r', encoding='utf-8') as f: 
                 usrs = json.load(f)
+                cambios = False
                 for u in usrs:
-                    if "contador_folios" not in usrs[u]: usrs[u]["contador_folios"] = 1
-                    if "activo" not in usrs[u]: usrs[u]["activo"] = True
-                    if "active_sessions" not in usrs[u]: usrs[u]["active_sessions"] = []
+                    if "contador_folios" not in usrs[u]: 
+                        usrs[u]["contador_folios"] = 1
+                        cambios = True
+                    if "activo" not in usrs[u]: 
+                        usrs[u]["activo"] = True
+                        cambios = True
+                    if "active_sessions" not in usrs[u]: 
+                        usrs[u]["active_sessions"] = []
+                        cambios = True
+                    if "sesiones" not in usrs[u]:
+                        usrs[u]["sesiones"] = 0
+                        cambios = True
+                if cambios:
+                    with open(self.ruta_usuarios, 'w', encoding='utf-8') as fw: 
+                        json.dump(usrs, fw, indent=4)
                 return usrs
-        except: return usuarios_base
+        except: 
+            with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: json.dump(usuarios_base, f, indent=4)
+            return usuarios_base
 
     def _cargar_auditoria(self):
         if not os.path.exists(self.ruta_auditoria): return []
@@ -130,7 +145,8 @@ class GestorSistemaFV:
 
     def login_usuario(self, usr: str) -> str:
         self.usuarios = self._cargar_usuarios()
-        if not self.usuarios.get(usr, {}).get("activo", True): return None
+        if usr not in self.usuarios: return None
+        if not self.usuarios[usr].get("activo", True): return None
         
         token = str(uuid.uuid4())
         if "active_sessions" not in self.usuarios[usr]:
@@ -139,7 +155,7 @@ class GestorSistemaFV:
         sessions = self.usuarios[usr]["active_sessions"]
         sessions.append(token)
         
-        # Límite de 2 dispositivos: Si hay un tercero, se expulsa automáticamente al más antiguo (FIFO)
+        # FIFO: Máximo 2 dispositivos activos, expulsa al más antiguo
         if len(sessions) > 2:
             sessions.pop(0) 
             
@@ -316,7 +332,6 @@ if 'logged_in' not in st.session_state:
     st.session_state.rol = ""
     st.session_state.session_token = None
 
-# Inicializar memoria para la recomendación del asesor inteligente
 if 'rec_panel_id' not in st.session_state: st.session_state.rec_panel_id = None
 if 'rec_inv_id' not in st.session_state: st.session_state.rec_inv_id = None
 if 'rec_bat_id' not in st.session_state: st.session_state.rec_bat_id = None
@@ -348,7 +363,7 @@ if not st.session_state.logged_in:
                             db.registrar_acceso(usr, st.session_state.rol)
                             st.rerun()
                         else:
-                            st.error("❌ Error al iniciar sesión.")
+                            st.error("❌ Error al registrar la sesión.")
                     else:
                         st.error("❌ Contraseña incorrecta.")
                 else:
@@ -358,7 +373,6 @@ else:
     rol_usuario = st.session_state.rol
     db.usuarios = db._cargar_usuarios()
 
-    # VALIDACIÓN EN VIVO: Si el admin dio de baja la cuenta o si fue expulsado por entrar en otro dispositivo (FIFO)
     active_tokens = db.usuarios.get(usuario_actual, {}).get("active_sessions", [])
     cuenta_activa = db.usuarios.get(usuario_actual, {}).get("activo", True)
 
@@ -386,7 +400,6 @@ else:
         st.session_state.session_token = None
         st.rerun()
 
-    # Pestañas dinámicas según rol
     if rol_usuario == "admin":
         tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente", "📦 Inventario & CRUD", "📜 Historial", "🛡️ Admin Principal"])
     elif rol_usuario == "admin_tec":
@@ -394,7 +407,7 @@ else:
     else:
         tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente"])
 
-    # --- PESTAÑA 1: COTIZADOR (SINCRONIZADO CON ASESOR) ---
+    # --- PESTAÑA 1: COTIZADOR ---
     with tabs[0]:
         st.header("⚡ Dimensionamiento Fotovoltaico y Cotización")
         
