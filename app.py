@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Sincronización Experta (Asesor Inteligente ➔ Cotizador)
+# Sistema Integral FV - Versión Streamlit Premium (Gestión FIFO de Sesiones)
 # ==============================================================================
 
 import os
@@ -8,6 +8,7 @@ import io
 import json
 import math
 import base64
+import uuid
 import datetime
 import pandas as pd
 import numpy as np
@@ -37,7 +38,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. GESTOR DE SISTEMA Y BASE DE DATOS
+# 1. GESTOR DE SISTEMA Y BASE DE DATOS (CON GESTIÓN DE SESIONES FIFO)
 # ==============================================================================
 class GestorSistemaFV:
     def __init__(self, ruta_dir: str = "."):
@@ -88,9 +89,9 @@ class GestorSistemaFV:
 
     def _cargar_usuarios(self):
         usuarios_base = {
-            "admin": {"pass": "solar2026", "rol": "admin", "activo": True, "sesiones": 0, "ver_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
-            "socio1": {"pass": "renovable2026", "rol": "admin_tec", "activo": True, "sesiones": 0, "ver_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
-            "cliente": {"pass": "solar2026", "rol": "usuario", "activo": True, "sesiones": 0, "ver_ganancia": False, "ganancia_pct": 25.0, "contador_folios": 1}
+            "admin": {"pass": "solar2026", "rol": "admin", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
+            "socio1": {"pass": "renovable2026", "rol": "admin_tec", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
+            "cliente": {"pass": "solar2026", "rol": "usuario", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": False, "ganancia_pct": 25.0, "contador_folios": 1}
         }
         if not os.path.exists(self.ruta_usuarios):
             with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: json.dump(usuarios_base, f, indent=4)
@@ -101,6 +102,7 @@ class GestorSistemaFV:
                 for u in usrs:
                     if "contador_folios" not in usrs[u]: usrs[u]["contador_folios"] = 1
                     if "activo" not in usrs[u]: usrs[u]["activo"] = True
+                    if "active_sessions" not in usrs[u]: usrs[u]["active_sessions"] = []
                 return usrs
         except: return usuarios_base
 
@@ -126,18 +128,34 @@ class GestorSistemaFV:
         self.historial.insert(0, reg)
         with open(self.ruta_historial, 'w', encoding='utf-8') as f: json.dump(self.historial, f, indent=4, ensure_ascii=False)
 
-    def login_usuario(self, usr: str) -> bool:
+    def login_usuario(self, usr: str) -> str:
         self.usuarios = self._cargar_usuarios()
-        if not self.usuarios.get(usr, {}).get("activo", True): return False
-        if self.usuarios[usr].get("sesiones", 0) >= 2: return False 
-        self.usuarios[usr]["sesiones"] = self.usuarios[usr].get("sesiones", 0) + 1
+        if not self.usuarios.get(usr, {}).get("activo", True): return None
+        
+        token = str(uuid.uuid4())
+        if "active_sessions" not in self.usuarios[usr]:
+            self.usuarios[usr]["active_sessions"] = []
+        
+        sessions = self.usuarios[usr]["active_sessions"]
+        sessions.append(token)
+        
+        # Límite de 2 dispositivos: Si hay un tercero, se expulsa automáticamente al más antiguo (FIFO)
+        if len(sessions) > 2:
+            sessions.pop(0) 
+            
+        self.usuarios[usr]["active_sessions"] = sessions
+        self.usuarios[usr]["sesiones"] = len(sessions)
         self.guardar_usuarios()
-        return True
+        return token
 
-    def logout_usuario(self, usr: str):
+    def logout_usuario(self, usr: str, token: str = None):
         self.usuarios = self._cargar_usuarios()
-        if usr in self.usuarios:
-            self.usuarios[usr]["sesiones"] = max(0, self.usuarios[usr].get("sesiones", 1) - 1)
+        if usr in self.usuarios and "active_sessions" in self.usuarios[usr]:
+            if token and token in self.usuarios[usr]["active_sessions"]:
+                self.usuarios[usr]["active_sessions"].remove(token)
+            elif self.usuarios[usr]["active_sessions"]:
+                self.usuarios[usr]["active_sessions"].pop()
+            self.usuarios[usr]["sesiones"] = len(self.usuarios[usr]["active_sessions"])
             self.guardar_usuarios()
 
     def registrar_acceso(self, usuario: str, rol: str):
@@ -182,7 +200,7 @@ def init_db():
 db = init_db()
 
 # ==============================================================================
-# 2. MOTOR DE CÁLCULO E INGENIERÍA (CON ASESOR INTELIGENTE SINCRONIZADO)
+# 2. MOTOR DE CÁLCULO E INGENIERÍA
 # ==============================================================================
 class MotorCalculoFV:
     @staticmethod
@@ -296,6 +314,7 @@ if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.usuario = ""
     st.session_state.rol = ""
+    st.session_state.session_token = None
 
 # Inicializar memoria para la recomendación del asesor inteligente
 if 'rec_panel_id' not in st.session_state: st.session_state.rec_panel_id = None
@@ -320,14 +339,16 @@ if not st.session_state.logged_in:
                     if not db.usuarios[usr].get("activo", True):
                         st.error("❌ Cuenta inhabilitada por el administrador.")
                     elif db.usuarios[usr]["pass"] == pwd:
-                        if db.login_usuario(usr):
+                        token = db.login_usuario(usr)
+                        if token:
                             st.session_state.logged_in = True
                             st.session_state.usuario = usr
                             st.session_state.rol = db.usuarios[usr].get("rol", "usuario")
+                            st.session_state.session_token = token
                             db.registrar_acceso(usr, st.session_state.rol)
                             st.rerun()
                         else:
-                            st.error("❌ Límite de sesiones alcanzado.")
+                            st.error("❌ Error al iniciar sesión.")
                     else:
                         st.error("❌ Contraseña incorrecta.")
                 else:
@@ -337,23 +358,32 @@ else:
     rol_usuario = st.session_state.rol
     db.usuarios = db._cargar_usuarios()
 
-    # VALIDACIÓN EN VIVO: Si el admin dio de baja la cuenta, expulsar al instante
-    if not db.usuarios.get(usuario_actual, {}).get("activo", True):
-        st.error("❌ ACCESO REVOCADO: Tu cuenta ha sido dada de baja por el Administrador.")
-        db.logout_usuario(usuario_actual)
+    # VALIDACIÓN EN VIVO: Si el admin dio de baja la cuenta o si fue expulsado por entrar en otro dispositivo (FIFO)
+    active_tokens = db.usuarios.get(usuario_actual, {}).get("active_sessions", [])
+    cuenta_activa = db.usuarios.get(usuario_actual, {}).get("activo", True)
+
+    if not cuenta_activa or st.session_state.session_token not in active_tokens:
+        if not cuenta_activa:
+            st.error("❌ ACCESO REVOCADO: Tu cuenta ha sido dada de baja por el Administrador.")
+        else:
+            st.warning("⚠️ Tu sesión ha sido cerrada automáticamente porque iniciaste sesión en un nuevo dispositivo.")
+        
+        db.logout_usuario(usuario_actual, st.session_state.session_token)
         st.session_state.logged_in = False
         st.session_state.usuario = ""
         st.session_state.rol = ""
+        st.session_state.session_token = None
         st.rerun()
 
     usr_data = db.usuarios.get(usuario_actual, {})
 
     st.sidebar.markdown(f"### ☀️ CECyT 7\n**Usuario:** {usuario_actual.upper()}\n**Rol:** {rol_usuario.upper()}")
     if st.sidebar.button("🚪 Cerrar Sesión", type="primary"):
-        db.logout_usuario(usuario_actual)
+        db.logout_usuario(usuario_actual, st.session_state.session_token)
         st.session_state.logged_in = False
         st.session_state.usuario = ""
         st.session_state.rol = ""
+        st.session_state.session_token = None
         st.rerun()
 
     # Pestañas dinámicas según rol
@@ -368,7 +398,6 @@ else:
     with tabs[0]:
         st.header("⚡ Dimensionamiento Fotovoltaico y Cotización")
         
-        # Opciones de equipos
         lista_paneles = db.obtener_paneles()
         lista_inversores = db.obtener_inversores()
         lista_baterias = db.obtener_baterias()
@@ -379,7 +408,6 @@ else:
         baterias_opts = {"Ninguna / No Aplica": ""}
         baterias_opts.update({f"{b['marca']} {b['modelo']} (${b['precio_mxn']:,.0f})": b['id'] for b in lista_baterias})
 
-        # Índices por defecto basados en la recomendación del Asesor Inteligente si existe
         default_p_idx = 0
         if st.session_state.rec_panel_id:
             for idx, (label, pid) in enumerate(paneles_opts.items()):
@@ -478,7 +506,7 @@ else:
             except Exception as e:
                 st.error(f"❌ Error al generar PDF: {e}")
 
-    # --- PESTAÑA 2: ASESOR INTELIGENTE CON CARGA AUTOMÁTICA AL COTIZADOR ---
+    # --- PESTAÑA 2: ASESOR INTELIGENTE ---
     with tabs[1]:
         st.header("🧠 Asesor Inteligente de Selección de Equipos")
         st.markdown("Selecciona tus prioridades y el asesor recomendará el equipo ideal, enviándolo directamente al cotizador con un solo clic.")
@@ -497,7 +525,6 @@ else:
             rank_b = MotorCalculoFV.evaluar_mejor_bateria(prio_b)
             
             if rank_p and rank_i and rank_b:
-                # Guardar selección recomendada en la sesión para sincronizarla con el cotizador
                 st.session_state.rec_panel_id = rank_p[0]['panel']['id']
                 st.session_state.rec_inv_id = rank_i[0]['inversor']['id']
                 st.session_state.rec_bat_id = rank_b[0]['bateria']['id']
@@ -610,7 +637,7 @@ else:
             st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
             
             db.usuarios = db._cargar_usuarios()
-            df_users = pd.DataFrame([{ 'Usuario': u, 'Rol': d['rol'], 'Sesiones': f"{d.get('sesiones',0)}/2", 'Folio Actual': f"{d.get('contador_folios',1):03d}", 'Estado': 'ACTIVO' if d.get('activo',True) else 'BLOQUEADO' } for u, d in db.usuarios.items()])
+            df_users = pd.DataFrame([{ 'Usuario': u, 'Rol': d['rol'], 'Sesiones': f"{len(d.get('active_sessions', []))}/2", 'Folio Actual': f"{d.get('contador_folios',1):03d}", 'Estado': 'ACTIVO' if d.get('activo',True) else 'BLOQUEADO' } for u, d in db.usuarios.items()])
             st.dataframe(df_users, use_container_width=True)
 
             st.markdown("---")
@@ -635,6 +662,7 @@ else:
                     if db.usuarios[target_usr].get("activo", True):
                         if st.button("🔴 Dar de Baja / Bloquear Acceso en Vivo", type="primary"):
                             db.usuarios[target_usr]["activo"] = False
+                            db.usuarios[target_usr]["active_sessions"] = []
                             db.usuarios[target_usr]["sesiones"] = 0
                             db.guardar_usuarios()
                             st.success(f"Cuenta '{target_usr}' bloqueada al instante.")
