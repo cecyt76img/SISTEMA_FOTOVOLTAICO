@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Streamlit Premium (100% Íntegra y Verificada)
+# Sistema Integral FV - Versión Streamlit Premium (Sincronización Total en Vivo)
 # ==============================================================================
 
 import os
@@ -37,7 +37,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. GESTOR DE SISTEMA Y BASE DE DATOS (CON BIBLIOTECA AMPLIADA)
+# 1. GESTOR DE SISTEMA Y BASE DE DATOS (CON SINCRONIZACIÓN EN TIEMPO REAL)
 # ==============================================================================
 class GestorSistemaFV:
     def __init__(self, ruta_dir: str = "."):
@@ -157,6 +157,7 @@ class GestorSistemaFV:
         return self.datos.get("baterias", [])
     
     def agregar_registro(self, cat, data):
+        self.datos = self._cargar_equipos()
         self.datos.setdefault(cat, []).append(data)
         self.guardar_equipos()
 
@@ -181,9 +182,43 @@ def init_db():
 db = init_db()
 
 # ==============================================================================
-# 2. MOTOR DE CÁLCULO E INGENIERÍA
+# 2. MOTOR DE CÁLCULO E INGENIERÍA (INCLUYENDO ASESOR INTELIGENTE)
 # ==============================================================================
 class MotorCalculoFV:
+    @staticmethod
+    def evaluar_mejor_panel(prioridad: str, area_disp: float):
+        evaluados = []
+        for p in db.obtener_paneles():
+            cabe = p.get('area_m2', 2) <= area_disp
+            if prioridad == 'Espacio Reducido': pt = (p.get('eficiencia_pct', 20) * 2) + (p.get('potencia_w', 1) / max(0.1, p.get('area_m2', 1)))
+            elif prioridad == 'Economía': pt = (p.get('potencia_w', 1) / max(1, p.get('precio_mxn', 1))) * 1000
+            else: pt = p.get('eficiencia_pct', 20)
+            evaluados.append({'panel': p, 'puntaje': pt, 'cabe': cabe})
+        return sorted(evaluados, key=lambda x: x['puntaje'], reverse=True)
+
+    @staticmethod
+    def evaluar_mejor_inversor(potencia_sistema_kwp: float, prioridad: str):
+        evaluados = []
+        for inv in db.obtener_inversores():
+            apto = inv.get('potencia_ac_kw', 1) >= (potencia_sistema_kwp * 0.70)
+            if prioridad == 'Máxima Eficiencia': pt = inv.get('eficiencia_pct', 97) * 10
+            elif prioridad == 'Economía': pt = (inv.get('potencia_ac_kw', 1) / max(1, inv.get('precio_mxn', 1))) * 10000
+            else: pt = inv.get('eficiencia_pct', 97) + (inv.get('num_mppt', 2) * 2)
+            evaluados.append({'inversor': inv, 'puntaje': pt, 'apto': apto})
+        return sorted(evaluados, key=lambda x: x['puntaje'], reverse=True)
+
+    @staticmethod
+    def evaluar_mejor_bateria(prioridad: str):
+        evaluados = []
+        for b in db.obtener_baterias():
+            ciclos = b.get('ciclos_vida', 1000)
+            kwh_util = b.get('energia_kwh', 1) * (b.get('dod_recomendado_pct', 90) / 100.0)
+            if prioridad == 'Mayor Vida Útil': pt = ciclos
+            elif prioridad == 'Economía': pt = (kwh_util / max(1, b.get('precio_mxn', 1))) * 100000
+            else: pt = kwh_util 
+            evaluados.append({'bateria': b, 'puntaje': pt})
+        return sorted(evaluados, key=lambda x: x['puntaje'], reverse=True)
+
     @staticmethod
     def dimensionar_sistema(cons_bim, hsp, pid, iid, costo, modo_operacion, bid, horas_respaldo, ganancia_pct, extras_mxn):
         panel = next((p for p in db.obtener_paneles() if p["id"] == pid), None)
@@ -318,13 +353,15 @@ else:
         st.session_state.rol = ""
         st.rerun()
 
-    # Pestañas dinámicas según el rol
+    # Pestañas dinámicas según el rol solicitado
     if rol_usuario == "admin":
-        tabs = st.tabs(["⚡ Cotizador", "📦 Inventario & CRUD", "📜 Historial", "🛡️ Admin Principal"])
+        tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente", "📦 Inventario & CRUD", "📜 Historial", "🛡️ Admin Principal"])
     elif rol_usuario == "admin_tec":
-        tabs = st.tabs(["⚡ Cotizador", "📦 Inventario & CRUD", "📜 Historial"])
+        # Los socios (admin_tec) también tienen control total de inventario y cotizaciones
+        tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente", "📦 Inventario & CRUD", "📜 Historial"])
     else:
-        tabs = st.tabs(["⚡ Cotizador Cliente"])
+        # Los clientes solamente pueden ver el cotizador y el asesor inteligente
+        tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente"])
 
     # --- PESTAÑA 1: COTIZADOR ---
     with tabs[0]:
@@ -375,7 +412,6 @@ else:
             except Exception as e:
                 st.error(f"❌ Error en el cálculo: {e}")
 
-        # Generador de PDF oficial con Streamlit download button
         if st.button("📄 Generar y Descargar PDF Oficial"):
             try:
                 if 'ultimo_calculo' not in st.session_state:
@@ -412,13 +448,48 @@ else:
             except Exception as e:
                 st.error(f"❌ Error al generar PDF: {e}")
 
-    # --- PESTAÑA 2: INVENTARIO & CRUD (AÑADIR, EDITAR Y ELIMINAR EQUIPOS) ---
-    if len(tabs) >= 2:
-        with tabs[1]:
-            st.header("📦 Biblioteca Ampliada y CRUD de Equipos")
-            st.markdown("Añade, edita o elimina paneles, inversores y baterías con todas sus especificaciones técnicas.")
+    # --- PESTAÑA 2: ASESOR INTELIGENTE ---
+    with tabs[1]:
+        st.header("🧠 Asesor Inteligente de Selección de Equipos")
+        st.markdown("Evalúa y obtén recomendaciones automáticas del mejor equipo fotovoltaico según tus necesidades.")
+        
+        col_as1, col_as2, col_as3 = st.columns(3)
+        with col_as1:
+            prio_p = st.selectbox("Prioridad de Panel", ['Alta Eficiencia', 'Espacio Reducido', 'Economía'])
+        with col_as2:
+            prio_i = st.selectbox("Prioridad de Inversor", ['Máxima Eficiencia', 'Versatilidad (Más MPPT)', 'Economía'])
+        with col_as3:
+            prio_b = st.selectbox("Prioridad de Batería", ['Mayor Vida Útil', 'Mayor Capacidad', 'Economía'])
+
+        if st.button("🧠 Ejecutar Recomendación Experta"):
+            rank_p = MotorCalculoFV.evaluar_mejor_panel(prio_p, 100)
+            rank_i = MotorCalculoFV.evaluar_mejor_inversor(3.0, prio_i)
+            rank_b = MotorCalculoFV.evaluar_mejor_bateria(prio_b)
             
-            tipo_cat = st.selectbox("Seleccionar Categoría", ["paneles", "inversores", "baterias"])
+            st.success("✅ ¡Análisis y recomendación completados con éxito!")
+            
+            col_r1, col_r2, col_r3 = st.columns(3)
+            with col_r1:
+                if rank_p:
+                    p_rec = rank_p[0]['panel']
+                    st.markdown(f"**☀️ Panel Recomendado:**\n* **{p_rec['marca']} {p_rec['modelo']}**\n* Potencia: {p_rec['potencia_w']}W\n* Precio: ${p_rec['precio_mxn']:,.2f} MXN")
+            with col_r2:
+                if rank_i:
+                    i_rec = rank_i[0]['inversor']
+                    st.markdown(f"**⚡ Inversor Recomendado:**\n* **{i_rec['marca']} {i_rec['modelo']}**\n* Capacidad: {i_rec['potencia_ac_kw']} kW\n* Precio: ${i_rec['precio_mxn']:,.2f} MXN")
+            with col_r3:
+                if rank_b:
+                    b_rec = rank_b[0]['bateria']
+                    st.markdown(f"**🔋 Batería Recomendada:**\n* **{b_rec['marca']} {b_rec['modelo']}**\n* Energía: {b_rec['energia_kwh']} kWh\n* Precio: ${b_rec['precio_mxn']:,.2f} MXN")
+
+    # --- PESTAÑA 3: INVENTARIO & CRUD (Disponible para Admin y Socios en tiempo real) ---
+    indice_inv = 2 if rol_usuario in ["admin", "admin_tec"] else None
+    if indice_inv is not None and len(tabs) > indice_inv:
+        with tabs[indice_inv]:
+            st.header("📦 Gestión y Control de Inventario de Equipos")
+            st.markdown("Como Administrador o Socio, cualquier cambio que realices se sincroniza y actualiza instantáneamente para todos los usuarios conectados.")
+            
+            tipo_cat = st.selectbox("Seleccionar Categoría de Equipo", ["paneles", "inversores", "baterias"])
             
             with st.form("crud_form"):
                 col_c1, col_c2 = st.columns(2)
@@ -449,7 +520,7 @@ else:
                             nuevo = {"id": eid, "marca": e_marca, "modelo": e_modelo, "energia_kwh": e_pot, "v_nominal": e_vmax, "dod_recomendado_pct": 90.0, "certificaciones": e_cert, "precio_mxn": e_precio}
                         
                         db.agregar_registro(tipo_cat, nuevo)
-                        st.success(f"✅ ¡Equipo {eid} añadido correctamente a la biblioteca!")
+                        st.success(f"✅ ¡Equipo {eid} añadido y sincronizado globalmente!")
                         st.rerun()
                     else:
                         st.warning("⚠️ Introduce un ID y una marca válidos.")
@@ -466,7 +537,7 @@ else:
                         
                         exito = db.actualizar_registro(tipo_cat, eid, upd)
                         if exito:
-                            st.success(f"✏️ ¡Equipo {eid} actualizado correctamente!")
+                            st.success(f"✏️ ¡Equipo {eid} actualizado y sincronizado en vivo!")
                             st.rerun()
                         else:
                             st.error(f"❌ No se encontró ningún equipo con el ID {eid}.")
@@ -477,18 +548,19 @@ else:
                     if e_id:
                         eid = e_id.strip().upper()
                         db.eliminar_registro(tipo_cat, eid)
-                        st.success(f"🗑️ Equipo {eid} eliminado de la biblioteca.")
+                        st.success(f"🗑️ Equipo {eid} eliminado de la base de datos.")
                         st.rerun()
                     else:
                         st.warning("⚠️ Introduce el ID del equipo a eliminar.")
 
             st.markdown("---")
-            st.subheader(f"📊 Listado Actual de {tipo_cat.capitalize()}")
+            st.subheader(f"📊 Listado Actual en Base de Datos: {tipo_cat.capitalize()}")
             st.dataframe(pd.DataFrame(db.datos.get(tipo_cat, [])), use_container_width=True)
 
-    # --- PESTAÑA 3: HISTORIAL ---
-    if len(tabs) >= 3 and rol_usuario in ["admin", "admin_tec"]:
-        with tabs[2]:
+    # --- PESTAÑA 4: HISTORIAL ---
+    indice_hist = 3 if rol_usuario in ["admin", "admin_tec"] else None
+    if indice_hist is not None and len(tabs) > indice_hist:
+        with tabs[indice_hist]:
             st.header("📜 Historial de Cotizaciones")
             db.historial = db._cargar_historial()
             if db.historial:
@@ -496,9 +568,9 @@ else:
             else:
                 st.info("No hay cotizaciones registradas todavía.")
 
-    # --- PESTAÑA 4: ADMIN PRINCIPAL & AUDITORÍA DE CREDENCIALES ---
-    if len(tabs) >= 4 and rol_usuario == "admin":
-        with tabs[3]:
+    # --- PESTAÑA 5: ADMIN PRINCIPAL & AUDITORÍA DE CREDENCIALES ---
+    if rol_usuario == "admin" and len(tabs) >= 5:
+        with tabs[4]:
             st.header("🛡️ Panel de Administración Principal")
             st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
             
