@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Final (Cierre y Revocación de Sesión Limpia)
+# Sistema Integral FV - Versión Final (Monitoreo Estilizado Modo Oscuro)
 # ==============================================================================
 
 import os
@@ -385,13 +385,11 @@ else:
     rol_usuario = st.session_state.rol
     db.usuarios = db._cargar_usuarios()
 
-    # Verificación segura de estado y tokens
     usr_info = db.usuarios.get(usuario_actual, {})
     active_tokens = usr_info.get("active_sessions", []) if isinstance(usr_info, dict) else []
     cuenta_activa = usr_info.get("activo", True) if isinstance(usr_info, dict) else True
 
     if not cuenta_activa or (active_tokens and st.session_state.session_token not in active_tokens):
-        # Limpieza limpia de sesión sin excepciones
         try:
             db.logout_usuario(usuario_actual, st.session_state.session_token)
         except:
@@ -402,7 +400,6 @@ else:
         st.session_state.rol = ""
         st.session_state.session_token = None
 
-        # Mensaje limpio y elegante sin errores de consola
         st.markdown("""
             <div style="max-width: 500px; margin: 100px auto; padding: 30px; background: #1e293b; border: 1px solid #38bdf8; border-radius: 12px; text-align: center; color: #f8fafc;">
                 <h3 style="color: #38bdf8; margin-bottom: 15px;">🔒 Sesión Finalizada</h3>
@@ -685,15 +682,16 @@ else:
                 num_sesiones = len(d.get('active_sessions', [])) if isinstance(d, dict) else 0
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
+                # Colores adaptados al modo oscuro
                 if not is_activo:
                     estado_txt = "BLOQUEADO / BAJA"
-                    color_fila = "background-color: #fee2e2; color: #991b1b;"
+                    color_fila = "background-color: #7f1d1d; color: #fecaca;" # Rojo oscuro oscuro
                 elif num_sesiones > 0:
                     estado_txt = "CONECTADO EN VIVO"
-                    color_fila = "background-color: #dcfce7; color: #166534;"
+                    color_fila = "background-color: #064e3b; color: #a7f3d0;" # Verde oscuro oscuro
                 else:
                     estado_txt = "INACTIVO"
-                    color_fila = "background-color: #f1f5f9; color: #334155;"
+                    color_fila = "background-color: #1e293b; color: #94a3b8;" # Gris oscuro (modo oscuro)
 
                 users_list.append({
                     'Usuario': u, 
@@ -709,7 +707,8 @@ else:
             def color_rows(row):
                 return [row['_style']] * len(row)
 
-            styled_df = df_users.style.apply(color_rows, axis=1)
+            # Se aplica el estilo y se oculta la columna técnica '_style' para que no aparezcan códigos
+            styled_df = df_users.style.apply(color_rows, axis=1).hide(subset=['_style'], axis='columns')
             st.dataframe(styled_df, use_container_width=True)
 
             st.markdown("---")
