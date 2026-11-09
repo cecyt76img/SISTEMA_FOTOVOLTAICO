@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Definitiva con Control de Ganancia por Cliente (0-100%)
+# Sistema Integral FV - Control Total de Ganancias por Rol y Cliente (0.0% a 100.0%)
 # ==============================================================================
 
 import os
@@ -91,9 +91,9 @@ class GestorSistemaFV:
 
     def _cargar_usuarios(self):
         usuarios_base = {
-            "admin": {"pass": "solar2026", "rol": "admin", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
-            "socio1": {"pass": "renovable2026", "rol": "admin_tec", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
-            "cliente": {"pass": "solar2026", "rol": "usuario", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": False, "ganancia_pct": 25.0, "contador_folios": 1}
+            "admin": {"pass": "solar2026", "rol": "admin", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": True, "aplicar_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
+            "socio1": {"pass": "renovable2026", "rol": "admin_tec", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": True, "aplicar_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
+            "cliente": {"pass": "solar2026", "rol": "usuario", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": False, "aplicar_ganancia": True, "ganancia_pct": 25.0, "contador_folios": 1}
         }
         if not os.path.exists(self.ruta_usuarios):
             with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: json.dump(usuarios_base, f, indent=4)
@@ -323,7 +323,7 @@ class GeneradorReportes:
         story.append(Paragraph(f"<b>Fecha de Emisión:</b> {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
         story.append(Spacer(1, 15))
 
-        # 1. MODELOS Y ESPECIFICACIÓN DE EQUIPOS (Sin desglose de precios individuales)
+        # 1. MODELOS Y ESPECIFICACIÓN DE EQUIPOS
         story.append(Paragraph("<b>1. Equipos y Modelos a Instalar</b>", styles['Heading2']))
         story.append(Spacer(1, 5))
 
@@ -378,7 +378,7 @@ class GeneradorReportes:
         story.append(t_roi)
         story.append(Spacer(1, 15))
 
-        # 3. PRECIO FINAL TOTAL (SIN DESGLOSE INDIVIDUAL DE COSTOS)
+        # 3. PRECIO FINAL TOTAL
         story.append(Paragraph("<b>3. Inversión Total Final</b>", styles['Heading2']))
         story.append(Spacer(1, 5))
 
@@ -575,18 +575,24 @@ else:
             es_socio_o_admin = rol_usuario in ["admin", "admin_tec"]
             puede_editar_cliente = (rol_usuario == "usuario" and usr_data_fresco.get("ver_ganancia", False))
             
-            # CONTROL DE GANANCIA (CASILLA DE ENTRADA NUMÉRICA 0.0% A 100.0%)
+            # SISTEMA DE CONTROL DE GANANCIA POR USUARIO Y ESTADO DE ACTIVACIÓN
             if es_socio_o_admin or puede_editar_cliente:
-                activar_ganancia = st.toggle("Activar / Modificar Ganancia Comercial", value=True)
+                activar_ganancia = st.toggle("Activar / Desactivar Ganancia Comercial", value=usr_data_fresco.get("aplicar_ganancia", True))
                 if activar_ganancia:
                     val_def = float(min(100.0, max(0.0, usr_data_fresco.get('ganancia_pct', 25.0))))
                     ganancia_pct = st.number_input("% Ganancia Comercial (0.0% a 100.0%)", min_value=0.0, max_value=100.0, value=val_def, step=0.5)
                 else:
                     ganancia_pct = 0.0
+                    st.warning("⚠️ Ganancia desactivada (0.0%). Se cotizará a costo directo.")
             else:
-                # CLIENTE SIN PERMISO DE MODIFICAR SU GANANCIA
-                ganancia_pct = float(usr_data_fresco.get('ganancia_pct', 25.0))
-                st.info(f"🔒 Porcentaje de Ganancia Aplicado: **{ganancia_pct}%** (Protegido por el Administrador / Socio)")
+                # CLIENTE QUE NO TIENE PERMISO DE MODIFICAR SU GANANCIA
+                esta_activa = usr_data_fresco.get("aplicar_ganancia", True)
+                if esta_activa:
+                    ganancia_pct = float(usr_data_fresco.get('ganancia_pct', 25.0))
+                    st.info(f"🔒 Porcentaje de Ganancia Aplicado: **{ganancia_pct}%** (Configurado por Administración)")
+                else:
+                    ganancia_pct = 0.0
+                    st.info("🔒 Ganancia Desactivada por Administración (Aplicando costo base 0%)")
 
         if st.button("⚡ Calcular y Cotizar", type="primary"):
             try:
@@ -764,35 +770,64 @@ else:
             else:
                 st.info("No hay cotizaciones registradas todavía.")
 
-    # --- PESTAÑA: GESTIÓN DE CLIENTES Y GANANCIAS POR CLIENTE (ACCESIBLE PARA SOCIOS Y ADMIN) ---
+    # --- PESTAÑA: GESTIÓN DE CLIENTES Y CONTROL GENERAL DE GANANCIAS ---
     indice_cli = 4 if rol_usuario in ["admin", "admin_tec"] else None
     if indice_cli is not None and len(tabs) > indice_cli and tabs[indice_cli].title == "👥 Gestión Clientes":
         with tabs[indice_cli]:
-            st.header("👥 Gestión Individual de Clientes y Ganancias")
-            st.markdown("Permite a los **Socios y Administrador** configurar individualmente el % de ganancia (**del 0.0% al 100.0%**) y definir si cada cliente tiene permiso de ver/modificar su ganancia en su cotizador.")
-            
+            st.header("👥 Gestión Integral de Ganancias (Clientes, Socios y Administrador)")
+            st.markdown("Permite a los **Socios y al Administrador Principal** consultar, activar/desactivar y ajustar exactamente el porcentaje de ganancia (**del 0.0% al 100.0%**) para cualquier cuenta del sistema.")
+
             db.usuarios = db._cargar_usuarios()
-            clientes = [u for u, d in db.usuarios.items() if d.get('rol') == 'usuario']
+
+            # TABLA RESUMEN DE GANANCIAS CONFIGURADAS POR ROL
+            st.subheader("📋 Resumen Actual de Ganancias Configuradas en el Sistema")
+            resumen_usrs = []
+            for u, d in db.usuarios.items():
+                rol_lbl = "Administrador Principal" if d.get('rol') == 'admin' else ("Socio / Admin Técnico" if d.get('rol') == 'admin_tec' else "Cliente")
+                resumen_usrs.append({
+                    "Usuario": u,
+                    "Rol del Perfil": rol_lbl,
+                    "% Ganancia Asignada": f"{d.get('ganancia_pct', 0.0):.1f}%",
+                    "Estado Ganancia": "🟢 ACTIVADA" if d.get('aplicar_ganancia', True) else "🔴 DESACTIVADA (0%)",
+                    "Permiso Edición": "✅ SÍ" if d.get('ver_ganancia', False) or d.get('rol') in ['admin', 'admin_tec'] else "🔒 BLOCKED (Fijo)"
+                })
+            st.dataframe(pd.DataFrame(resumen_usrs), use_container_width=True)
+
+            st.markdown("---")
+            st.subheader("✏️ Modificar Parámetros de Ganancia por Usuario")
             
-            if clientes:
-                cliente_sel = st.selectbox("Seleccionar Cliente a Configurar", clientes)
-                if cliente_sel:
-                    c_data = db.usuarios[cliente_sel]
-                    col_c1, col_c2 = st.columns(2)
-                    with col_c1:
-                        nuevo_ver_ganancia = st.toggle("Permitir que este cliente vea y edite su ganancia", value=c_data.get("ver_ganancia", False))
-                    with col_c2:
-                        val_actual_cli = float(min(100.0, max(0.0, c_data.get("ganancia_pct", 25.0))))
-                        nuevo_pct = st.number_input("Porcentaje de Ganancia Asignado (0.0% a 100.0%)", min_value=0.0, max_value=100.0, value=val_actual_cli, step=0.5)
-                        
-                    if st.button("💾 Guardar Configuración del Cliente", type="primary"):
-                        db.usuarios[cliente_sel]["ver_ganancia"] = nuevo_ver_ganancia
-                        db.usuarios[cliente_sel]["ganancia_pct"] = float(nuevo_pct)
-                        db.guardar_usuarios()
-                        st.success(f"✅ ¡Configuración de '{cliente_sel}' actualizada! (Ganancia: {nuevo_pct}%, Permiso de edición: {'SI' if nuevo_ver_ganancia else 'NO'}).")
-                        st.rerun()
-            else:
-                st.info("No hay clientes registrados en el sistema actualmente.")
+            todos_usuarios = list(db.usuarios.keys())
+            usr_seleccionado = st.selectbox("Seleccionar Cuenta a Modificar", todos_usuarios)
+
+            if usr_seleccionado:
+                u_datos = db.usuarios[usr_seleccionado]
+                es_target_admin = u_datos.get('rol') == 'admin'
+                
+                col_g1, col_g2, col_g3 = st.columns(3)
+                
+                with col_g1:
+                    estado_gan_actual = u_datos.get("aplicar_ganancia", True)
+                    nuevo_aplicar = st.toggle("Activar / Aplicar Ganancia Comercial", value=estado_gan_actual, key=f"togg_app_{usr_seleccionado}")
+                
+                with col_g2:
+                    pct_actual = float(min(100.0, max(0.0, u_datos.get("ganancia_pct", 25.0))))
+                    nuevo_pct_val = st.number_input("Porcentaje de Ganancia (0.0% a 100.0%)", min_value=0.0, max_value=100.0, value=pct_actual, step=0.5, key=f"num_pct_{usr_seleccionado}")
+
+                with col_g3:
+                    if u_datos.get('rol') in ['admin', 'admin_tec']:
+                        st.info("ℹ️ Socios y Administrador siempre tienen permiso de edición.")
+                        nuevo_ver_perm = True
+                    else:
+                        nuevo_ver_perm = st.toggle("Permitir que el cliente edite su ganancia", value=u_datos.get("ver_ganancia", False), key=f"togg_ver_{usr_seleccionado}")
+
+                if st.button(f"💾 Guardar Cambios para '{usr_seleccionado}'", type="primary"):
+                    db.usuarios[usr_seleccionado]["aplicar_ganancia"] = nuevo_aplicar
+                    db.usuarios[usr_seleccionado]["ganancia_pct"] = float(nuevo_pct_val)
+                    db.usuarios[usr_seleccionado]["ver_ganancia"] = nuevo_ver_perm
+                    db.guardar_usuarios()
+                    
+                    st.success(f"✅ ¡Parámetros de '{usr_seleccionado}' actualizados correctamente! (Ganancia: {nuevo_pct_val}%, Estado: {'ACTIVA' if nuevo_aplicar else 'DESACTIVADA'}).")
+                    st.rerun()
 
     # --- PESTAÑA 5: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO (EXCLUSIVA PARA ADMIN) ---
     if rol_usuario == "admin" and len(tabs) >= 6:
@@ -898,6 +933,7 @@ else:
                             "sesiones": 0,
                             "active_sessions": [],
                             "ver_ganancia": ver_ganancia_def,
+                            "aplicar_ganancia": True,
                             "ganancia_pct": ganancia_pct_def,
                             "contador_folios": 1
                         }
