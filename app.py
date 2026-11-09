@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Streamlit Premium (Optimizado y Blindado)
+# Sistema Integral FV - Versión con Creación de Usuarios por Administrador
 # ==============================================================================
 
 import os
@@ -661,6 +661,44 @@ else:
             db.usuarios = db._cargar_usuarios()
             df_users = pd.DataFrame([{ 'Usuario': u, 'Rol': d['rol'], 'Sesiones': f"{len(d.get('active_sessions', []))}/3", 'Folio Actual': f"{d.get('contador_folios',1):03d}", 'Estado': 'ACTIVO' if d.get('activo',True) else 'BLOQUEADO' } for u, d in db.usuarios.items()])
             st.dataframe(df_users, use_container_width=True)
+
+            st.markdown("---")
+            st.subheader("➕ Crear Nuevo Perfil de Usuario")
+            with st.form("crear_usuario_form"):
+                nuevo_usr_id = st.text_input("Nombre de Usuario (Login)").strip()
+                nuevo_usr_pass = st.text_input("Contraseña del Usuario", type="password").strip()
+                tipo_rol_label = st.selectbox("Seleccionar Rol del Perfil", ["Cliente (Usuario Estándar)", "Socio / Administrador Técnico"])
+                
+                btn_crear_usr = st.form_submit_button("👤 Registrar Nuevo Usuario")
+                
+                if btn_crear_usr:
+                    if not nuevo_usr_id or not nuevo_usr_pass:
+                        st.warning("⚠️ Debes rellenar el nombre de usuario y la contraseña.")
+                    elif nuevo_usr_id in db.usuarios:
+                        st.error(f"❌ El usuario '{nuevo_usr_id}' ya existe en el sistema.")
+                    else:
+                        if "Socio" in tipo_rol_label:
+                            rol_asignado = "admin_tec"
+                            ver_ganancia_def = True
+                            ganancia_pct_def = 40.0
+                        else:
+                            rol_asignado = "usuario"
+                            ver_ganancia_def = False
+                            ganancia_pct_def = 25.0
+                        
+                        db.usuarios[nuevo_usr_id] = {
+                            "pass": nuevo_usr_pass,
+                            "rol": rol_asignado,
+                            "activo": True,
+                            "sesiones": 0,
+                            "active_sessions": [],
+                            "ver_ganancia": ver_ganancia_def,
+                            "ganancia_pct": ganancia_pct_def,
+                            "contador_folios": 1
+                        }
+                        db.guardar_usuarios()
+                        st.success(f"✅ ¡Perfil '{nuevo_usr_id}' creado exitosamente como {tipo_rol_label}!")
+                        st.rerun()
 
             st.markdown("---")
             st.subheader("🔑 Auditoría de Contraseñas (Segura con Clave de Admin)")
