@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Final con Autorrefresco Nativo (Sin dependencias externas)
+# Sistema Integral FV - Versión Definitiva 100% Corregida
 # ==============================================================================
 
 import os
