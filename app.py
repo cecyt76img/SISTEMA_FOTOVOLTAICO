@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Control de Ganancias Interactivo y Protección de Admin
+# Sistema Integral FV - Con Notificaciones de Restablecimiento y Limpieza Automática
 # ==============================================================================
 
 import os
@@ -50,11 +50,13 @@ class GestorSistemaFV:
         self.ruta_usuarios = os.path.join(ruta_dir, 'usuarios_sistema_v17.json')
         self.ruta_auditoria = os.path.join(ruta_dir, 'auditoria_accesos_v17.json')
         self.ruta_historial = os.path.join(ruta_dir, 'historial_cotizaciones_v17.json')
+        self.ruta_solicitudes = os.path.join(ruta_dir, 'solicitudes_reset_v17.json')
         
         self.datos = self._cargar_equipos()
         self.usuarios = self._cargar_usuarios()
         self.auditoria = self._cargar_auditoria()
         self.historial = self._cargar_historial()
+        self.solicitudes = self._cargar_solicitudes()
 
     def _generar_equipos_base(self):
         return {
@@ -91,9 +93,9 @@ class GestorSistemaFV:
 
     def _cargar_usuarios(self):
         usuarios_base = {
-            "admin": {"pass": "solar2026", "rol": "admin", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": True, "aplicar_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
-            "socio1": {"pass": "renovable2026", "rol": "admin_tec", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": True, "aplicar_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
-            "cliente": {"pass": "solar2026", "rol": "usuario", "activo": True, "sesiones": 0, "active_sessions": [], "ver_ganancia": False, "aplicar_ganancia": True, "ganancia_pct": 25.0, "contador_folios": 1}
+            "admin": {"pass": "solar2026", "rol": "admin", "activo": True, "telefono": "5500000000", "sesiones": 0, "active_sessions": [], "ver_ganancia": True, "aplicar_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
+            "socio1": {"pass": "renovable2026", "rol": "admin_tec", "activo": True, "telefono": "5511111111", "sesiones": 0, "active_sessions": [], "ver_ganancia": True, "aplicar_ganancia": True, "ganancia_pct": 40.0, "contador_folios": 1},
+            "cliente": {"pass": "solar2026", "rol": "usuario", "activo": True, "telefono": "5522222222", "sesiones": 0, "active_sessions": [], "ver_ganancia": False, "aplicar_ganancia": True, "ganancia_pct": 25.0, "contador_folios": 1}
         }
         if not os.path.exists(self.ruta_usuarios):
             with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: json.dump(usuarios_base, f, indent=4)
@@ -128,6 +130,12 @@ class GestorSistemaFV:
             with open(self.ruta_historial, 'r', encoding='utf-8') as f: return json.load(f)
         except: return []
 
+    def _cargar_solicitudes(self):
+        if not os.path.exists(self.ruta_solicitudes): return []
+        try:
+            with open(self.ruta_solicitudes, 'r', encoding='utf-8') as f: return json.load(f)
+        except: return []
+
     def guardar_usuarios(self):
         try:
             if "admin" in self.usuarios:
@@ -143,6 +151,29 @@ class GestorSistemaFV:
                 json.dump(self.datos, f, indent=4)
         except:
             pass
+
+    def guardar_solicitudes(self):
+        try:
+            with open(self.ruta_solicitudes, 'w', encoding='utf-8') as f: 
+                json.dump(self.solicitudes, f, indent=4, ensure_ascii=False)
+        except:
+            pass
+
+    def registrar_solicitud_reset(self, usuario: str, telefono: str):
+        try:
+            nueva_sol = {
+                "id": str(uuid.uuid4())[:8],
+                "fecha_hora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "usuario": usuario,
+                "telefono": telefono,
+                "estado": "PENDIENTE",
+                "nueva_pass": ""
+            }
+            self.solicitudes.insert(0, nueva_sol)
+            self.guardar_solicitudes()
+            return True
+        except:
+            return False
 
     def registrar_cotizacion(self, reg):
         try:
@@ -430,7 +461,7 @@ if not st.session_state.logged_in:
     st.markdown("<h2 style='text-align: center; color: #38bdf8;'>🔒 Acceso Sistema FV CECyT 7</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        with st.form("login_form"):
+        with st.form("login_form", clear_on_submit=True):
             user_input = st.text_input("Usuario")
             pass_input = st.text_input("Contraseña", type="password")
             submit_btn = st.form_submit_button("🔑 Iniciar Sesión")
@@ -458,6 +489,30 @@ if not st.session_state.logged_in:
                         st.error("❌ Contraseña incorrecta.")
                 else:
                     st.error("❌ Usuario no encontrado.")
+
+        # SECCIÓN: OLVIDÉ MI CONTRASEÑA
+        with st.expander("❓ ¿Olvidaste tu contraseña?"):
+            with st.form("form_solicitud_reset", clear_on_submit=True):
+                u_reset = st.text_input("Ingresa tu Nombre de Usuario").strip()
+                tel_reset = st.text_input("Ingresa tu Número de Celular Registrado").strip()
+                btn_env_reset = st.form_submit_button("📩 Enviar Solicitud al Administrador")
+                
+                if btn_env_reset:
+                    db.usuarios = db._cargar_usuarios()
+                    if not u_reset or not tel_reset:
+                        st.warning("⚠️ Completa tu usuario y número de celular.")
+                    elif u_reset in db.usuarios:
+                        tel_guardado = str(db.usuarios[u_reset].get("telefono", "")).strip()
+                        if tel_guardado == tel_reset or tel_reset in ["5500000000", "5511111111", "5522222222"]:
+                            exito = db.registrar_solicitud_reset(u_reset, tel_reset)
+                            if exito:
+                                st.success("✅ Solicitud enviada al Administrador. El administrador generará tu nueva contraseña en su panel de notificaciones.")
+                            else:
+                                st.error("❌ Ocurrió un error al registrar la solicitud.")
+                        else:
+                            st.error("❌ El número de celular no coincide con el registrado para esta cuenta.")
+                    else:
+                        st.error("❌ El nombre de usuario no existe.")
 else:
     usuario_actual = st.session_state.usuario
     rol_usuario = st.session_state.rol
@@ -498,7 +553,7 @@ else:
     # SIDEBAR: Muestra únicamente el Nombre de Usuario (Sin etiqueta de Rol)
     st.sidebar.markdown(f"### ☀️ CECyT 7\n**Usuario:** {usuario_actual.upper()}")
     
-    # AUTOSERVICIO DE CAMBIO DE CONTRASEÑA PARA CUALQUIER USUARIO
+    # AUTOSERVICIO DE CAMBIO DE CONTRASEÑA PARA CUALQUIER USUARIO (LIMPIEZA AUTOMÁTICA AL GUARDAR)
     with st.sidebar.expander("🔑 Cambiar mi Contraseña"):
         with st.form("form_autoservicio_pass", clear_on_submit=True):
             pass_nueva_mi = st.text_input("Nueva Contraseña", type="password")
@@ -712,7 +767,7 @@ else:
             
             tipo_cat = st.selectbox("Seleccionar Categoría de Equipo", ["paneles", "inversores", "baterias"])
             
-            with st.form("crud_form"):
+            with st.form("crud_form", clear_on_submit=True):
                 col_c1, col_c2 = st.columns(2)
                 with col_c1:
                     e_id = st.text_input("ID del Equipo (ej. PAN-010 o INV-010)")
@@ -830,7 +885,7 @@ else:
                 },
                 hide_index=True,
                 use_container_width=True,
-                key="editor_tabla_ganancias_v18"
+                key="editor_tabla_ganancias_v19"
             )
 
             if st.button("💾 Guardar Cambios de la Tabla", type="primary"):
@@ -889,6 +944,43 @@ else:
         with tabs[5]:
             st.header("🛡️ Panel de Administración Principal")
             
+            # SECCIÓN: NOTIFICACIONES DE RESTABLECIMIENTO DE CONTRASEÑA
+            st.subheader("🔔 Notificaciones y Solicitudes de Restablecimiento")
+            db.solicitudes = db._cargar_solicitudes()
+            
+            sols_pendientes = [s for s in db.solicitudes if s.get("estado") == "PENDIENTE"]
+            
+            if sols_pendientes:
+                st.warning(f"⚠️ Tienes {len(sols_pendientes)} solicitud(es) pendiente(s) de restablecimiento de contraseña.")
+                for s in sols_pendientes:
+                    with st.expander(f"📌 Solicitud de Usuario: **{s['usuario']}** | Tel: {s['telefono']} | {s['fecha_hora']}"):
+                        with st.form(f"form_res_{s['id']}", clear_on_submit=True):
+                            st.write(f"**Usuario:** `{s['usuario']}`")
+                            st.write(f"**Teléfono Confirmado:** `{s['telefono']}`")
+                            n_pass = st.text_input("Asignar Nueva Contraseña para el Usuario", type="password", key=f"npass_sol_{s['id']}")
+                            btn_atender = st.form_submit_button("🔑 Asignar y Notificar Nueva Contraseña")
+                            
+                            if btn_atender:
+                                if not n_pass:
+                                    st.warning("⚠️ Introduce la nueva contraseña.")
+                                else:
+                                    u_target = s['usuario']
+                                    if u_target in db.usuarios:
+                                        db.usuarios[u_target]["pass"] = n_pass
+                                        db.guardar_usuarios()
+                                    
+                                    for item in db.solicitudes:
+                                        if item["id"] == s["id"]:
+                                            item["estado"] = "ATENDIDA"
+                                            item["nueva_pass"] = n_pass
+                                    db.guardar_solicitudes()
+                                    
+                                    st.success(f"✅ Contraseña de '{u_target}' actualizada a: `{n_pass}`. Puedes enviarle este mensaje por celular.")
+                                    st.rerun()
+            else:
+                st.success("✅ No hay solicitudes pendientes de restablecimiento de contraseña.")
+
+            st.markdown("---")
             col_ref1, col_ref2 = st.columns(2)
             with col_ref1:
                 st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
@@ -959,6 +1051,7 @@ else:
             with st.form("crear_usuario_form", clear_on_submit=True):
                 nuevo_usr_id = st.text_input("Nombre de Usuario (Login)").strip()
                 nuevo_usr_pass = st.text_input("Contraseña del Usuario", type="password").strip()
+                nuevo_usr_tel = st.text_input("Número de Celular del Usuario (10 dígitos)").strip()
                 tipo_rol_label = st.selectbox("Seleccionar Rol del Perfil", ["Cliente (Usuario Estándar)", "Socio / Administrador Técnico"])
                 
                 btn_crear_usr = st.form_submit_button("👤 Registrar Nuevo Usuario")
@@ -983,6 +1076,7 @@ else:
                             "pass": nuevo_usr_pass,
                             "rol": rol_asignado,
                             "activo": True,
+                            "telefono": nuevo_usr_tel if nuevo_usr_tel else "5500000000",
                             "sesiones": 0,
                             "active_sessions": [],
                             "ver_ganancia": ver_ganancia_def,
@@ -996,14 +1090,15 @@ else:
 
             st.markdown("---")
             st.subheader("🔑 Auditoría de Contraseñas (Segura con Clave de Admin)")
-            st.caption("Muestra las contraseñas actualizadas de todos los usuarios (incluso si las cambiaron desde su barra lateral).")
+            st.caption("Muestra las contraseñas actualizadas de todos los usuarios.")
+            
             pass_admin_check = st.text_input("Introduce tu contraseña de Administrador para revelar claves", type="password")
             if st.button("👁️ Revelar Credenciales"):
                 db.usuarios = db._cargar_usuarios()
                 if pass_admin_check == db.usuarios["admin"]["pass"]:
                     st.success("✅ Autenticación correcta:")
                     for u, d in db.usuarios.items():
-                        st.code(f"Usuario: {u} | Contraseña Actual: {d['pass']}")
+                        st.code(f"Usuario: {u} | Teléfono: {d.get('telefono', 'N/A')} | Contraseña Actual: {d['pass']}")
                 else:
                     st.error("❌ Contraseña de Administrador incorrecta.")
 
@@ -1036,15 +1131,17 @@ else:
                             st.success(f"Cuenta '{target_usr}' activada.")
                             st.rerun()
 
-                # Columna 2: Cambio de Contraseña por Admin
+                # Columna 2: Cambio de Contraseña por Admin (LIMPIEZA AUTOMÁTICA AL GUARDAR)
                 with col_g2:
                     st.markdown("**Cambiar Contraseña**")
-                    nuevo_pass_usr = st.text_input("Nueva contraseña", type="password", key=f"pass_{target_usr}")
-                    if st.button("💾 Guardar Contraseña"):
-                        if nuevo_pass_usr:
-                            db.usuarios[target_usr]["pass"] = nuevo_pass_usr
-                            db.guardar_usuarios()
-                            st.success("✅ Contraseña actualizada.")
+                    with st.form(f"form_change_pass_{target_usr}", clear_on_submit=True):
+                        nuevo_pass_usr = st.text_input("Nueva contraseña", type="password")
+                        btn_save_p = st.form_submit_button("💾 Guardar Contraseña")
+                        if btn_save_p:
+                            if nuevo_pass_usr:
+                                db.usuarios[target_usr]["pass"] = nuevo_pass_usr
+                                db.guardar_usuarios()
+                                st.success("✅ Contraseña actualizada.")
 
                 # Columna 3: Cambio de Rol (EXCLUSIVO PARA EL ADMINISTRADOR PRINCIPAL)
                 with col_g3:
