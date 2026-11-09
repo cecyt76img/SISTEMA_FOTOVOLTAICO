@@ -735,8 +735,8 @@ else:
                     </tr>
                 """
 
-            # Autorrefresco nativo con JavaScript embebido cada 2000 ms (2 segundos)
-            html_monitoreo = f"""
+            # Autorrefresco nativo con cadena de texto normal (sin f-string para evitar conflictos de llaves)
+            html_monitoreo = """
             <div style="background: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px; overflow-x: auto;">
                 <table style="width: 100%; border-collapse: collapse; color: #f8fafc; font-family: sans-serif;">
                     <thead>
@@ -749,7 +749,7 @@ else:
                         </tr>
                     </thead>
                     <tbody>
-                        {filas_html}
+                        """ + filas_html + """
                     </tbody>
                 </table>
             </div>
