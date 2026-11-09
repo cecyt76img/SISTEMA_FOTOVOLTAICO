@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Definitiva 100% Estable y Corregida
+# Sistema Integral FV - Versión Definitiva con Refresco de 1 Min y Limpieza Auto
 # ==============================================================================
 
 import os
@@ -10,6 +10,7 @@ import math
 import base64
 import uuid
 import datetime
+import time
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -45,10 +46,10 @@ class GestorSistemaFV:
     def __init__(self, ruta_dir: str = "."):
         self.ruta_dir = ruta_dir
         os.makedirs(ruta_dir, exist_ok=True)
-        self.ruta_equipos = os.path.join(ruta_dir, 'equipos_fv_v16.json')
-        self.ruta_usuarios = os.path.join(ruta_dir, 'usuarios_sistema_v16.json')
-        self.ruta_auditoria = os.path.join(ruta_dir, 'auditoria_accesos_v16.json')
-        self.ruta_historial = os.path.join(ruta_dir, 'historial_cotizaciones_v16.json')
+        self.ruta_equipos = os.path.join(ruta_dir, 'equipos_fv_v17.json')
+        self.ruta_usuarios = os.path.join(ruta_dir, 'usuarios_sistema_v17.json')
+        self.ruta_auditoria = os.path.join(ruta_dir, 'auditoria_accesos_v17.json')
+        self.ruta_historial = os.path.join(ruta_dir, 'historial_cotizaciones_v17.json')
         
         self.datos = self._cargar_equipos()
         self.usuarios = self._cargar_usuarios()
@@ -356,7 +357,6 @@ params = st.query_params
 url_user = str(params.get("user", "")).strip()
 url_token = str(params.get("token", "")).strip()
 
-# Validación híbrida: si hay sesión activa en memoria o token válido en URL
 if not st.session_state.logged_in and url_user and url_token and url_token not in ["False", "None", ""]:
     db.usuarios = db._cargar_usuarios()
     if url_user in db.usuarios and db.usuarios[url_user].get("activo", True):
@@ -413,7 +413,6 @@ else:
     active_tokens = usr_info.get("active_sessions", []) if isinstance(usr_info, dict) else []
     cuenta_activa = usr_info.get("activo", True) if isinstance(usr_info, dict) else True
 
-    # Validación de seguridad mejorada: Solo revoca si el token fue explícitamente eliminado del servidor
     if not cuenta_activa or (st.session_state.session_token and active_tokens and st.session_state.session_token not in active_tokens and len(active_tokens) == 0):
         try:
             if usuario_actual and st.session_state.session_token:
@@ -457,9 +456,9 @@ else:
         st.rerun()
 
     if rol_usuario == "admin":
-        tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente", "📦 Inventario & CRUD", "📜 Historial", "🛡️ Admin Principal"])
+        tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente", "📦 Inventario & CRUD", "📜 Historial", "👥 Gestión Clientes", "🛡️ Admin Principal"])
     elif rol_usuario == "admin_tec":
-        tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente", "📦 Inventario & CRUD", "📜 Historial"])
+        tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente", "📦 Inventario & CRUD", "📜 Historial", "👥 Gestión Clientes"])
     else:
         tabs = st.tabs(["⚡ Cotizador", "🧠 Asesor Inteligente"])
 
@@ -516,11 +515,15 @@ else:
 
             costo_kwh = st.number_input("Costo por kWh (MXN)", value=3.50)
             
-            ganancia_visible = rol_usuario != "usuario" or usr_data.get("ver_ganancia", False)
+            # Recarga dinámica de configuración de ganancia del usuario
+            db.usuarios = db._cargar_usuarios()
+            usr_data_fresco = db.usuarios.get(usuario_actual, {})
+            ganancia_visible = rol_usuario != "usuario" or usr_data_fresco.get("ver_ganancia", False)
+            
             if ganancia_visible:
-                ganancia_pct = st.slider("% Ganancia Comercial", 0.0, 100.0, float(usr_data.get('ganancia_pct', 40.0)))
+                ganancia_pct = st.slider("% Ganancia Comercial", 0.0, 100.0, float(usr_data_fresco.get('ganancia_pct', 40.0)))
             else:
-                ganancia_pct = usr_data.get('ganancia_pct', 25.0)
+                ganancia_pct = float(usr_data_fresco.get('ganancia_pct', 25.0))
 
         if st.button("⚡ Calcular y Cotizar", type="primary"):
             try:
@@ -546,11 +549,11 @@ else:
                 else:
                     res = st.session_state.ultimo_calculo
                     rol_prefijo = "ADM" if rol_usuario == "admin" else ("SOC" if rol_usuario == "admin_tec" else "CLI")
-                    contador_actual = usr_data.get("contador_folios", 1)
+                    contador_actual = usr_data_fresco.get("contador_folios", 1)
                     folio_str = f"{rol_prefijo}-{usuario_actual.upper()[:10]}-{contador_actual:03d}"
                     
                     nombre_archivo = f"Cotizacion_{folio_str}.pdf"
-                    mostrar_precios = rol_usuario != "usuario" or usr_data.get("ver_ganancia", False)
+                    mostrar_precios = rol_usuario != "usuario" or usr_data_fresco.get("ver_ganancia", False)
                     
                     GeneradorReportes.construir_pdf(res, folio_str, nombre_archivo, mostrar_precios)
                     
@@ -699,12 +702,48 @@ else:
             else:
                 st.info("No hay cotizaciones registradas todavía.")
 
-    # --- PESTAÑA 5: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO ---
-    if rol_usuario == "admin" and len(tabs) >= 5:
-        with tabs[4]:
-            st.header("🛡️ Panel de Administración Principal")
-            st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
+    # --- PESTAÑA: GESTIÓN DE CLIENTES Y GANANCIAS ---
+    indice_cli = 4 if rol_usuario in ["admin", "admin_tec"] else None
+    if indice_cli is not None and len(tabs) > indice_cli and tabs[indice_cli].title == "👥 Gestión Clientes":
+        with tabs[indice_cli]:
+            st.header("👥 Gestión de Clientes y Ganancias en Tiempo Real")
+            st.markdown("Permite o bloquea el acceso de los clientes para ver y ajustar su % de ganancia, o establécelo de manera fija e invisible.")
             
+            db.usuarios = db._cargar_usuarios()
+            clientes = [u for u, d in db.usuarios.items() if d.get('rol') == 'usuario']
+            
+            if clientes:
+                cliente_sel = st.selectbox("Seleccionar Cliente", clientes)
+                if cliente_sel:
+                    c_data = db.usuarios[cliente_sel]
+                    col_c1, col_c2 = st.columns(2)
+                    with col_c1:
+                        nuevo_ver_ganancia = st.toggle("Permitir que el cliente vea y edite su ganancia", value=c_data.get("ver_ganancia", False))
+                    with col_c2:
+                        nuevo_pct = st.number_input("Porcentaje de Ganancia Fijo (%)", min_value=0.0, max_value=100.0, value=float(c_data.get("ganancia_pct", 25.0)), step=1.0)
+                        
+                    if st.button("💾 Guardar Configuración de Ganancia", type="primary"):
+                        db.usuarios[cliente_sel]["ver_ganancia"] = nuevo_ver_ganancia
+                        db.usuarios[cliente_sel]["ganancia_pct"] = float(nuevo_pct)
+                        db.guardar_usuarios()
+                        st.success(f"✅ Configuración de '{cliente_sel}' actualizada y aplicada en tiempo real.")
+                        st.rerun()
+            else:
+                st.info("No hay clientes registrados en el sistema.")
+
+    # --- PESTAÑA 5: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO ---
+    if rol_usuario == "admin" and len(tabs) >= 6:
+        with tabs[5]:
+            st.header("🛡️ Panel de Administración Principal")
+            
+            col_ref1, col_ref2 = st.columns(2)
+            with col_ref1:
+                st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
+            with col_ref2:
+                # AUTORREFRESCO CADA 1 MINUTO (60 SEGUNDOS)
+                auto_refresh = st.toggle("⏱️ Activar Auto-Refresco (cada 1 min)")
+                st.caption("⚠️ Permite trabajar cómodamente en formularios sin interrupciones repentinas.")
+
             if st.button("🔄 Actualizar Monitoreo Ahora"):
                 db.usuarios = db._cargar_usuarios()
                 st.rerun()
@@ -717,7 +756,6 @@ else:
                 num_sesiones = len(sessions)
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
-                # Verificación robusta: Si el usuario actual coincide con la fila y está logueado en memoria, forzamos indicador en vivo
                 es_este_usuario_activo = (u == usuario_actual and st.session_state.logged_in)
                 
                 if not is_activo:
@@ -725,7 +763,7 @@ else:
                     txt_color = "#fecaca"
                     estado_txt = "BLOQUEADO / BAJA"
                 elif num_sesiones > 0 or es_este_usuario_activo:
-                    bg_color = "#064e3b" # Verde brillante en vivo
+                    bg_color = "#064e3b"
                     txt_color = "#a7f3d0"
                     conteo_real = max(num_sesiones, 1 if es_este_usuario_activo else 0)
                     estado_txt = f"CONECTADO EN VIVO ({conteo_real})"
@@ -744,7 +782,6 @@ else:
                     </tr>
                 """
 
-            # Renderizado seguro de la tabla sin bucles de recarga automática destructivos en URL
             html_monitoreo = f"""
             <div style="background: #1e293b; padding: 15px; border-radius: 10px; border: 1px solid #334155; margin-bottom: 20px; overflow-x: auto;">
                 <table style="width: 100%; border-collapse: collapse; color: #f8fafc; font-family: sans-serif;">
@@ -768,7 +805,9 @@ else:
 
             st.markdown("---")
             st.subheader("➕ Crear Nuevo Perfil de Usuario")
-            with st.form("crear_usuario_form"):
+            
+            # FORMULARIO CON LIMPIEZA AUTOMÁTICA AL ENVIAR (clear_on_submit=True)
+            with st.form("crear_usuario_form", clear_on_submit=True):
                 nuevo_usr_id = st.text_input("Nombre de Usuario (Login)").strip()
                 nuevo_usr_pass = st.text_input("Contraseña del Usuario", type="password").strip()
                 tipo_rol_label = st.selectbox("Seleccionar Rol del Perfil", ["Cliente (Usuario Estándar)", "Socio / Administrador Técnico"])
@@ -776,10 +815,12 @@ else:
                 btn_crear_usr = st.form_submit_button("👤 Registrar Nuevo Usuario")
                 
                 if btn_crear_usr:
+                    db.usuarios = db._cargar_usuarios()
                     if not nuevo_usr_id or not nuevo_usr_pass:
                         st.warning("⚠️ Debes rellenar el nombre de usuario y la contraseña.")
+                    # CONDICIÓN DE SEGURIDAD: IMPIDE REGISTRAR NOMBRES DE USUARIO REPETIDOS
                     elif nuevo_usr_id in db.usuarios:
-                        st.error(f"❌ El usuario '{nuevo_usr_id}' ya existe en el sistema.")
+                        st.error(f"❌ El nombre de usuario '{nuevo_usr_id}' ya existe. Debes usar un nombre de usuario único.")
                     else:
                         if "Socio" in tipo_rol_label:
                             rol_asignado = "admin_tec"
@@ -801,7 +842,7 @@ else:
                             "contador_folios": 1
                         }
                         db.guardar_usuarios()
-                        st.success(f"✅ ¡Perfil '{nuevo_usr_id}' creado exitosamente como {tipo_rol_label}!")
+                        st.success(f"✅ ¡Perfil '{nuevo_usr_id}' creado exitosamente como {tipo_rol_label}! Los datos ingresados se han borrado del formulario.")
                         st.rerun()
 
             st.markdown("---")
@@ -846,3 +887,8 @@ else:
                             db.usuarios[target_usr]["pass"] = nuevo_pass_usr
                             db.guardar_usuarios()
                             st.success("✅ Contraseña actualizada con éxito.")
+
+            # REPETICIÓN CADA 60 SEGUNDOS (1 MINUTO) AL FINAL DE LA PESTAÑA ADMIN
+            if auto_refresh:
+                time.sleep(60)
+                st.rerun()
