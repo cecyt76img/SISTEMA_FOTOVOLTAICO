@@ -161,7 +161,7 @@ class GestorSistemaFV:
             if token not in sessions:
                 sessions.append(token)
             
-            if len(sessions) > 3:
+            if len(sessions) > 5:
                 sessions.pop(0) 
                 
             self.usuarios[usr]["active_sessions"] = sessions
@@ -353,7 +353,7 @@ params = st.query_params
 url_user = str(params.get("user", "")).strip()
 url_token = str(params.get("token", "")).strip()
 
-# Validación estricta: Ignorar tokens vacíos, "False" o "None" procedentes de la URL
+# Validación estricta por token en URL
 if not st.session_state.logged_in and url_user and url_token and url_token not in ["False", "None", ""]:
     db.usuarios = db._cargar_usuarios()
     if url_user in db.usuarios and db.usuarios[url_user].get("activo", True):
@@ -410,7 +410,8 @@ else:
     active_tokens = usr_info.get("active_sessions", []) if isinstance(usr_info, dict) else []
     cuenta_activa = usr_info.get("activo", True) if isinstance(usr_info, dict) else True
 
-    if not cuenta_activa or (active_tokens and st.session_state.session_token not in active_tokens):
+    # Verificación estricta de revocación o cierre de sesión
+    if not cuenta_activa or (st.session_state.session_token and active_tokens and st.session_state.session_token not in active_tokens):
         try:
             if usuario_actual and st.session_state.session_token:
                 db.logout_usuario(usuario_actual, st.session_state.session_token)
@@ -713,18 +714,15 @@ else:
                 num_sesiones = len(sessions)
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
-                # Verificación robusta: Si el usuario coincide con la sesión actual activa, se fuerza el estado en vivo correctamente
-                es_usuario_actual_conectado = (u == usuario_actual) and st.session_state.logged_in
-                
+                # Verificación estricta por usuario individual: Solo se pinta en verde si tiene sesiones reales activas en el JSON
                 if not is_activo:
                     bg_color = "#7f1d1d" 
                     txt_color = "#fecaca"
                     estado_txt = "BLOQUEADO / BAJA"
-                elif num_sesiones > 0 or es_usuario_actual_conectado:
+                elif num_sesiones > 0:
                     bg_color = "#064e3b" # Verde brillante en vivo
                     txt_color = "#a7f3d0"
-                    conteo_mostrar = max(num_sesiones, 1 if es_usuario_actual_conectado else 0)
-                    estado_txt = f"CONECTADO EN VIVO ({conteo_mostrar})"
+                    estado_txt = f"CONECTADO EN VIVO ({num_sesiones})"
                 else:
                     bg_color = "#0f172a" 
                     txt_color = "#94a3b8"
@@ -734,7 +732,7 @@ else:
                     <tr style="background-color: {bg_color}; color: {txt_color}; border-bottom: 1px solid #334155;">
                         <td style="padding: 12px; font-weight: bold;">{u}</td>
                         <td style="padding: 12px;">{d.get('rol', 'usuario')}</td>
-                        <td style="padding: 12px;">{max(num_sesiones, 1 if es_usuario_actual_conectado else 0)}/3</td>
+                        <td style="padding: 12px;">{num_sesiones}/3</td>
                         <td style="padding: 12px;">{d.get('contador_folios', 1):03d}</td>
                         <td style="padding: 12px; font-weight: bold;">{estado_txt}</td>
                     </tr>
