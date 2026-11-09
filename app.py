@@ -353,7 +353,8 @@ params = st.query_params
 url_user = str(params.get("user", "")).strip()
 url_token = str(params.get("token", "")).strip()
 
-if not st.session_state.logged_in and url_user and url_token and url_token != "False" and url_token != "None":
+# Validación estricta: Ignorar tokens vacíos, "False" o "None" procedentes de la URL
+if not st.session_state.logged_in and url_user and url_token and url_token not in ["False", "None", ""]:
     db.usuarios = db._cargar_usuarios()
     if url_user in db.usuarios and db.usuarios[url_user].get("activo", True):
         active_sessions = db.usuarios[url_user].get("active_sessions", [])
@@ -712,15 +713,18 @@ else:
                 num_sesiones = len(sessions)
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
                 
-                # Comprobación estricta para marcar en verde la fila del usuario realmente conectado actual o activo con sesiones
+                # Verificación robusta: Si el usuario coincide con la sesión actual activa, se fuerza el estado en vivo correctamente
+                es_usuario_actual_conectado = (u == usuario_actual) and st.session_state.logged_in
+                
                 if not is_activo:
                     bg_color = "#7f1d1d" 
                     txt_color = "#fecaca"
                     estado_txt = "BLOQUEADO / BAJA"
-                elif num_sesiones > 0:
+                elif num_sesiones > 0 or es_usuario_actual_conectado:
                     bg_color = "#064e3b" # Verde brillante en vivo
                     txt_color = "#a7f3d0"
-                    estado_txt = f"CONECTADO EN VIVO ({num_sesiones})"
+                    conteo_mostrar = max(num_sesiones, 1 if es_usuario_actual_conectado else 0)
+                    estado_txt = f"CONECTADO EN VIVO ({conteo_mostrar})"
                 else:
                     bg_color = "#0f172a" 
                     txt_color = "#94a3b8"
@@ -730,7 +734,7 @@ else:
                     <tr style="background-color: {bg_color}; color: {txt_color}; border-bottom: 1px solid #334155;">
                         <td style="padding: 12px; font-weight: bold;">{u}</td>
                         <td style="padding: 12px;">{d.get('rol', 'usuario')}</td>
-                        <td style="padding: 12px;">{num_sesiones}/3</td>
+                        <td style="padding: 12px;">{max(num_sesiones, 1 if es_usuario_actual_conectado else 0)}/3</td>
                         <td style="padding: 12px;">{d.get('contador_folios', 1):03d}</td>
                         <td style="padding: 12px; font-weight: bold;">{estado_txt}</td>
                     </tr>
