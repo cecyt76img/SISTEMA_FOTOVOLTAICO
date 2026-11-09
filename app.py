@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Definitiva (Ganancias Restringidas y PDF Optimizado)
+# Sistema Integral FV - Versión Definitiva con Control de Ganancia por Cliente (0-100%)
 # ==============================================================================
 
 import os
@@ -296,7 +296,7 @@ class MotorCalculoFV:
                 costo_baterias_mxn = n_bat * bobj.get("precio_mxn", 0)
 
         costo_directo = (n_pan_real * panel.get("precio_mxn", 0)) + inv.get("precio_mxn", 0) + costo_baterias_mxn + extras_mxn
-        precio_venta = costo_directo * (1.0 + (max(0, ganancia_pct) / 100.0))
+        precio_venta = costo_directo * (1.0 + (max(0.0, min(100.0, ganancia_pct)) / 100.0))
         ahorro_anual = pot_real * max(0.1, hsp) * 0.80 * 365 * costo
         
         return {
@@ -308,11 +308,11 @@ class MotorCalculoFV:
         }
 
 # ==============================================================================
-# 3. GENERADOR DE PDF PROFESIONAL (MODELOS, ROI Y SOLO PRECIO FINAL)
+# 3. GENERADOR DE PDF PROFESIONAL (MODELOS, ROI Y SOLO PRECIO FINAL TOTAL)
 # ==============================================================================
 class GeneradorReportes:
     @staticmethod
-    def construir_pdf(datos, folio_str, ruta_salida, mostrar_precios_internos=False):
+    def construir_pdf(datos, folio_str, ruta_salida):
         doc = SimpleDocTemplate(ruta_salida, pagesize=letter, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
         styles = getSampleStyleSheet()
         story = []
@@ -323,8 +323,8 @@ class GeneradorReportes:
         story.append(Paragraph(f"<b>Fecha de Emisión:</b> {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
         story.append(Spacer(1, 15))
 
-        # 1. MODELOS Y ESPECIFICACIÓN DE EQUIPOS (Sin desglose de precios)
-        story.append(Paragraph("<b>1. Modelos y Equipos a Utilizar</b>", styles['Heading2']))
+        # 1. MODELOS Y ESPECIFICACIÓN DE EQUIPOS (Sin desglose de precios individuales)
+        story.append(Paragraph("<b>1. Equipos y Modelos a Instalar</b>", styles['Heading2']))
         story.append(Spacer(1, 5))
 
         marca_bat = f"{datos['bateria'].get('marca', '')} {datos['bateria'].get('modelo', '')}" if datos['bateria'] else 'N/A'
@@ -348,7 +348,7 @@ class GeneradorReportes:
         story.append(Spacer(1, 15))
 
         # 2. ESQUEMA DE TIEMPO DE RECUPERACIÓN (ROI Y PROYECCIONES)
-        story.append(Paragraph("<b>2. Esquema de Tiempo de Recuperación e Impacto Financiero</b>", styles['Heading2']))
+        story.append(Paragraph("<b>2. Esquema de Retorno de Inversión (ROI) y Ahorros Proyectados</b>", styles['Heading2']))
         story.append(Spacer(1, 5))
 
         ahorro_anual = datos['ahorro_anual']
@@ -378,12 +378,12 @@ class GeneradorReportes:
         story.append(t_roi)
         story.append(Spacer(1, 15))
 
-        # 3. PRECIO FINAL (SOLO EL TOTAL SIN DESGLOSAR INDIVIDUALMENTE)
-        story.append(Paragraph("<b>3. Resumen Financiero Total</b>", styles['Heading2']))
+        # 3. PRECIO FINAL TOTAL (SIN DESGLOSE INDIVIDUAL DE COSTOS)
+        story.append(Paragraph("<b>3. Inversión Total Final</b>", styles['Heading2']))
         story.append(Spacer(1, 5))
 
         t_precio_data = [
-            ["INVERSIÓN TOTAL FINAL DEL SISTEMA (INSTALADO)", f"${precio_total:,.2f} MXN"]
+            ["INVERSIÓN TOTAL FINAL DEL SISTEMA (INSTALADO COMPLETO)", f"${precio_total:,.2f} MXN"]
         ]
         t_precio = Table(t_precio_data, colWidths=[4.4*inch, 3.0*inch])
         t_precio.setStyle(TableStyle([
@@ -572,21 +572,21 @@ else:
             db.usuarios = db._cargar_usuarios()
             usr_data_fresco = db.usuarios.get(usuario_actual, {})
             
-            # RESTRICCIÓN: SOLO SOCIOS (admin_tec) O ADMIN PRINCIPAL (admin) PUEDEN ACTIVAR, DESACTIVAR Y MOVER GANANCIAS
             es_socio_o_admin = rol_usuario in ["admin", "admin_tec"]
+            puede_editar_cliente = (rol_usuario == "usuario" and usr_data_fresco.get("ver_ganancia", False))
             
-            if es_socio_o_admin:
+            # CONTROL DE GANANCIA (CASILLA DE ENTRADA NUMÉRICA 0.0% A 100.0%)
+            if es_socio_o_admin or puede_editar_cliente:
                 activar_ganancia = st.toggle("Activar / Modificar Ganancia Comercial", value=True)
                 if activar_ganancia:
-                    val_def = float(min(50.0, max(0.0, usr_data_fresco.get('ganancia_pct', 40.0))))
-                    # ESPACIO DE ENTRADA NUMÉRICA (0% A 50%) EN LUGAR DE LÍNEA MOVIBLE
-                    ganancia_pct = st.number_input("% Ganancia Comercial (0.0% a 50.0%)", min_value=0.0, max_value=50.0, value=val_def, step=0.5)
+                    val_def = float(min(100.0, max(0.0, usr_data_fresco.get('ganancia_pct', 25.0))))
+                    ganancia_pct = st.number_input("% Ganancia Comercial (0.0% a 100.0%)", min_value=0.0, max_value=100.0, value=val_def, step=0.5)
                 else:
                     ganancia_pct = 0.0
             else:
-                # LOS CLIENTES NO PUEDEN MOVER LA GANANCIA NI ACTIVARLA/DESACTIVARLA
+                # CLIENTE SIN PERMISO DE MODIFICAR SU GANANCIA
                 ganancia_pct = float(usr_data_fresco.get('ganancia_pct', 25.0))
-                st.info(f"🔒 Porcentaje de Ganancia Aplicado: **{ganancia_pct}%** (Protegido por el Administrador)")
+                st.info(f"🔒 Porcentaje de Ganancia Aplicado: **{ganancia_pct}%** (Protegido por el Administrador / Socio)")
 
         if st.button("⚡ Calcular y Cotizar", type="primary"):
             try:
@@ -764,34 +764,35 @@ else:
             else:
                 st.info("No hay cotizaciones registradas todavía.")
 
-    # --- PESTAÑA: GESTIÓN DE CLIENTES Y GANANCIAS ---
+    # --- PESTAÑA: GESTIÓN DE CLIENTES Y GANANCIAS POR CLIENTE (ACCESIBLE PARA SOCIOS Y ADMIN) ---
     indice_cli = 4 if rol_usuario in ["admin", "admin_tec"] else None
     if indice_cli is not None and len(tabs) > indice_cli and tabs[indice_cli].title == "👥 Gestión Clientes":
         with tabs[indice_cli]:
-            st.header("👥 Gestión de Clientes y Ganancias en Tiempo Real")
-            st.markdown("Permite o bloquea el acceso de los clientes para ver y ajustar su % de ganancia, o establécelo de manera fija e invisible.")
+            st.header("👥 Gestión Individual de Clientes y Ganancias")
+            st.markdown("Permite a los **Socios y Administrador** configurar individualmente el % de ganancia (**del 0.0% al 100.0%**) y definir si cada cliente tiene permiso de ver/modificar su ganancia en su cotizador.")
             
             db.usuarios = db._cargar_usuarios()
             clientes = [u for u, d in db.usuarios.items() if d.get('rol') == 'usuario']
             
             if clientes:
-                cliente_sel = st.selectbox("Seleccionar Cliente", clientes)
+                cliente_sel = st.selectbox("Seleccionar Cliente a Configurar", clientes)
                 if cliente_sel:
                     c_data = db.usuarios[cliente_sel]
                     col_c1, col_c2 = st.columns(2)
                     with col_c1:
-                        nuevo_ver_ganancia = st.toggle("Permitir que el cliente vea su ganancia", value=c_data.get("ver_ganancia", False))
+                        nuevo_ver_ganancia = st.toggle("Permitir que este cliente vea y edite su ganancia", value=c_data.get("ver_ganancia", False))
                     with col_c2:
-                        nuevo_pct = st.number_input("Porcentaje de Ganancia Fijo (%)", min_value=0.0, max_value=50.0, value=float(min(50.0, c_data.get("ganancia_pct", 25.0))), step=1.0)
+                        val_actual_cli = float(min(100.0, max(0.0, c_data.get("ganancia_pct", 25.0))))
+                        nuevo_pct = st.number_input("Porcentaje de Ganancia Asignado (0.0% a 100.0%)", min_value=0.0, max_value=100.0, value=val_actual_cli, step=0.5)
                         
-                    if st.button("💾 Guardar Configuración de Ganancia", type="primary"):
+                    if st.button("💾 Guardar Configuración del Cliente", type="primary"):
                         db.usuarios[cliente_sel]["ver_ganancia"] = nuevo_ver_ganancia
                         db.usuarios[cliente_sel]["ganancia_pct"] = float(nuevo_pct)
                         db.guardar_usuarios()
-                        st.success(f"✅ Configuración de '{cliente_sel}' actualizada y aplicada en tiempo real.")
+                        st.success(f"✅ ¡Configuración de '{cliente_sel}' actualizada! (Ganancia: {nuevo_pct}%, Permiso de edición: {'SI' if nuevo_ver_ganancia else 'NO'}).")
                         st.rerun()
             else:
-                st.info("No hay clientes registrados en el sistema.")
+                st.info("No hay clientes registrados en el sistema actualmente.")
 
     # --- PESTAÑA 5: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO (EXCLUSIVA PARA ADMIN) ---
     if rol_usuario == "admin" and len(tabs) >= 6:
