@@ -16,16 +16,16 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image as RLImage
 from reportlab.lib.styles import getSampleStyleSheet
 
-==============================================================================
+# ==============================================================================
 CONFIGURACIÓN DE PÁGINA
-==============================================================================
+# ==============================================================================
 st.set_page_config(page_title="Sistema Integral FV - CECyT 7", page_icon="☀️", layout="wide")
 
 plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')
 
-==============================================================================
+ # ==============================================================================
 1. CONSTANTES GLOBALES Y GESTOR DE SISTEMA
-==============================================================================
+# ==============================================================================
 RESISTIVIDAD_COBRE_OHM_MM2_M = 0.0193
 FACTOR_SEGURIDAD_CORRIENTE_NEC = 1.25
  FACTOR_PROTECCION_GPV_NEC = 1.56
@@ -151,9 +151,9 @@ self.guardar_equipos()
 Instanciar Gestor BD
 db = GestorSistemaFV('./data')
 
-==============================================================================
+# ==============================================================================
 2. MOTOR DE CÁLCULO E INGENIERÍA
-==============================================================================
+# ==============================================================================
 class MotorCalculoFV:
 @staticmethod
 def evaluar_mejor_panel(prioridad: str, area_disp: float) -> List[Dict]:
@@ -263,9 +263,9 @@ return {
 'ganancia_pct': ganancia_pct, 'fig_arr': fig_arr, 'fig_roi': fig_roi
 }
 
-==============================================================================
+# ==============================================================================
 3. GENERADOR DE PDF PROFESIONAL
-==============================================================================
+# ==============================================================================
 class GeneradorReportes:
 @staticmethod
 def generar_pdf_bytes(datos, folio_str, mostrar_precios_internos):
@@ -323,9 +323,9 @@ if os.path.exists(p): os.remove(p)
 
 return pdf_bytes
 
-==============================================================================
+# ==============================================================================
 4. GESTIÓN DE SESIONES EN STREAMLIT
-==============================================================================
+# ==============================================================================
 if 'autenticado' not in st.session_state:
 st.session_state.update({'autenticado': False, 'usuario': None, 'rol': None})
 if 'cotizacion_activa' not in st.session_state:
@@ -370,9 +370,9 @@ st.session_state.usuario = None
 st.session_state.rol = None
 st.rerun()
 
-==============================================================================
+# ==============================================================================
 5. APLICACIÓN PRINCIPAL (VISTAS)
-==============================================================================
+# ==============================================================================
 if not st.session_state.autenticado:
 login_ui()
 else:
