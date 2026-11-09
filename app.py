@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión Final Corregida (HTML Nativo y Cierre Seguro)
+# Sistema Integral FV - Versión Final Corregida (Monitoreo Persistente en Vivo)
 # ==============================================================================
 
 import os
@@ -158,7 +158,9 @@ class GestorSistemaFV:
                 self.usuarios[usr]["active_sessions"] = []
             
             sessions = self.usuarios[usr]["active_sessions"]
-            sessions.append(token)
+            # Añadir token actual
+            if token not in sessions:
+                sessions.append(token)
             
             if len(sessions) > 3:
                 sessions.pop(0) 
@@ -166,9 +168,7 @@ class GestorSistemaFV:
             self.usuarios[usr]["active_sessions"] = sessions
             self.usuarios[usr]["sesiones"] = len(sessions)
             
-            with open(self.ruta_usuarios, 'w', encoding='utf-8') as f: 
-                json.dump(self.usuarios, f, indent=4)
-                
+            self.guardar_usuarios()
             return token
         except Exception as e:
             return token
@@ -386,7 +386,18 @@ if not st.session_state.logged_in:
 else:
     usuario_actual = st.session_state.usuario
     rol_usuario = st.session_state.rol
+    
+    # Sincronización automática del token actual en memoria si por alguna razón no estaba escrito
     db.usuarios = db._cargar_usuarios()
+    if usuario_actual in db.usuarios:
+        if "active_sessions" not in db.usuarios[usuario_actual] or not isinstance(db.usuarios[usuario_actual]["active_sessions"], list):
+            db.usuarios[usuario_actual]["active_sessions"] = []
+        
+        # Asegurarnos de que el token activo actual esté guardado físicamente en el JSON
+        if st.session_state.session_token and st.session_state.session_token not in db.usuarios[usuario_actual]["active_sessions"]:
+            db.usuarios[usuario_actual]["active_sessions"].append(st.session_state.session_token)
+            db.usuarios[usuario_actual]["sesiones"] = len(db.usuarios[usuario_actual]["active_sessions"])
+            db.guardar_usuarios()
 
     usr_info = db.usuarios.get(usuario_actual, {})
     active_tokens = usr_info.get("active_sessions", []) if isinstance(usr_info, dict) else []
