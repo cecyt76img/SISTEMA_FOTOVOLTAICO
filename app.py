@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Versión con Creación de Usuarios por Administrador
+# Sistema Integral FV - Versión Final (Cierre y Revocación de Sesión Limpia)
 # ==============================================================================
 
 import os
@@ -38,7 +38,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 1. GESTOR DE SISTEMA Y BASE DE DATOS OPTIMIZADO
+# 1. GESTOR DE SISTEMA Y BASE DE DATOS OPTIMIZADO EN TIEMPO REAL
 # ==============================================================================
 class GestorSistemaFV:
     def __init__(self, ruta_dir: str = "."):
@@ -173,13 +173,16 @@ class GestorSistemaFV:
     def logout_usuario(self, usr: str, token: str = None):
         try:
             self.usuarios = self._cargar_usuarios()
-            if usr in self.usuarios and "active_sessions" in self.usuarios[usr]:
-                if token and token in self.usuarios[usr]["active_sessions"]:
-                    self.usuarios[usr]["active_sessions"].remove(token)
-                elif self.usuarios[usr]["active_sessions"]:
-                    self.usuarios[usr]["active_sessions"].pop()
-                self.usuarios[usr]["sesiones"] = len(self.usuarios[usr]["active_sessions"])
-                self.guardar_usuarios()
+            if usr in self.usuarios and isinstance(self.usuarios[usr], dict):
+                sessions = self.usuarios[usr].get("active_sessions", [])
+                if isinstance(sessions, list):
+                    if token and token in sessions:
+                        sessions.remove(token)
+                    elif sessions:
+                        sessions.pop()
+                    self.usuarios[usr]["active_sessions"] = sessions
+                    self.usuarios[usr]["sesiones"] = len(sessions)
+                    self.guardar_usuarios()
         except:
             pass
 
@@ -382,23 +385,36 @@ else:
     rol_usuario = st.session_state.rol
     db.usuarios = db._cargar_usuarios()
 
-    active_tokens = db.usuarios.get(usuario_actual, {}).get("active_sessions", [])
-    cuenta_activa = db.usuarios.get(usuario_actual, {}).get("activo", True)
+    # Verificación segura de estado y tokens
+    usr_info = db.usuarios.get(usuario_actual, {})
+    active_tokens = usr_info.get("active_sessions", []) if isinstance(usr_info, dict) else []
+    cuenta_activa = usr_info.get("activo", True) if isinstance(usr_info, dict) else True
 
     if not cuenta_activa or (active_tokens and st.session_state.session_token not in active_tokens):
-        if not cuenta_activa:
-            st.error("❌ ACCESO REVOCADO: Tu cuenta ha sido dada de baja por el Administrador.")
-        else:
-            st.warning("⚠️ Tu sesión ha sido cerrada automáticamente porque iniciaste sesión en un nuevo dispositivo.")
-        
-        db.logout_usuario(usuario_actual, st.session_state.session_token)
+        # Limpieza limpia de sesión sin excepciones
+        try:
+            db.logout_usuario(usuario_actual, st.session_state.session_token)
+        except:
+            pass
+
         st.session_state.logged_in = False
         st.session_state.usuario = ""
         st.session_state.rol = ""
         st.session_state.session_token = None
-        st.rerun()
 
-    usr_data = db.usuarios.get(usuario_actual, {})
+        # Mensaje limpio y elegante sin errores de consola
+        st.markdown("""
+            <div style="max-width: 500px; margin: 100px auto; padding: 30px; background: #1e293b; border: 1px solid #38bdf8; border-radius: 12px; text-align: center; color: #f8fafc;">
+                <h3 style="color: #38bdf8; margin-bottom: 15px;">🔒 Sesión Finalizada</h3>
+                <p style="color: #94a3b8; font-size: 16px;">Tu sesión ha sido cerrada o revocada por el administrador.</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("🔄 Volver a Iniciar Sesión"):
+            st.rerun()
+        st.stop()
+
+    usr_data = usr_info
 
     st.sidebar.markdown(f"### ☀️ CECyT 7\n**Usuario:** {usuario_actual.upper()}\n**Rol:** {rol_usuario.upper()}")
     if st.sidebar.button("🚪 Cerrar Sesión", type="primary"):
@@ -658,9 +674,43 @@ else:
             st.header("🛡️ Panel de Administración Principal")
             st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
             
+            if st.button("🔄 Actualizar Monitoreo de Sesiones"):
+                db.usuarios = db._cargar_usuarios()
+                st.rerun()
+
             db.usuarios = db._cargar_usuarios()
-            df_users = pd.DataFrame([{ 'Usuario': u, 'Rol': d['rol'], 'Sesiones': f"{len(d.get('active_sessions', []))}/3", 'Folio Actual': f"{d.get('contador_folios',1):03d}", 'Estado': 'ACTIVO' if d.get('activo',True) else 'BLOQUEADO' } for u, d in db.usuarios.items()])
-            st.dataframe(df_users, use_container_width=True)
+            
+            users_list = []
+            for u, d in db.usuarios.items():
+                num_sesiones = len(d.get('active_sessions', [])) if isinstance(d, dict) else 0
+                is_activo = d.get('activo', True) if isinstance(d, dict) else True
+                
+                if not is_activo:
+                    estado_txt = "BLOQUEADO / BAJA"
+                    color_fila = "background-color: #fee2e2; color: #991b1b;"
+                elif num_sesiones > 0:
+                    estado_txt = "CONECTADO EN VIVO"
+                    color_fila = "background-color: #dcfce7; color: #166534;"
+                else:
+                    estado_txt = "INACTIVO"
+                    color_fila = "background-color: #f1f5f9; color: #334155;"
+
+                users_list.append({
+                    'Usuario': u, 
+                    'Rol': d.get('rol', 'usuario'), 
+                    'Sesiones Activas': f"{num_sesiones}/3", 
+                    'Folio Actual': f"{d.get('contador_folios',1):03d}", 
+                    'Estado': estado_txt,
+                    '_style': color_fila
+                })
+
+            df_users = pd.DataFrame(users_list)
+            
+            def color_rows(row):
+                return [row['_style']] * len(row)
+
+            styled_df = df_users.style.apply(color_rows, axis=1)
+            st.dataframe(styled_df, use_container_width=True)
 
             st.markdown("---")
             st.subheader("➕ Crear Nuevo Perfil de Usuario")
