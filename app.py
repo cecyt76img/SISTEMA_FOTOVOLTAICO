@@ -136,6 +136,36 @@ class GestorSistemaFV:
             with open(self.ruta_solicitudes, 'r', encoding='utf-8') as f: return json.load(f)
         except: return []
 
+    # Métodos Públicos Garantizados (Evitan AttributeError si se llaman sin guion bajo)
+    def cargar_usuarios(self):
+        self.usuarios = self._cargar_usuarios()
+        return self.usuarios
+
+    def cargar_solicitudes(self):
+        self.solicitudes = self._cargar_solicitudes()
+        return self.solicitudes
+
+    def cargar_historial(self):
+        self.historial = self._cargar_historial()
+        return self.historial
+
+    def cargar_equipos(self):
+        self.datos = self._cargar_equipos()
+        return self.datos
+
+    def cargar_auditoria(self):
+        self.auditoria = self._cargar_auditoria()
+        return self.auditoria
+
+    def obtener_solicitudes(self):
+        return self.cargar_solicitudes()
+
+    def obtener_usuarios(self):
+        return self.cargar_usuarios()
+
+    def obtener_historial(self):
+        return self.cargar_historial()
+
     def guardar_usuarios(self):
         try:
             if "admin" in self.usuarios:
@@ -169,6 +199,7 @@ class GestorSistemaFV:
                 "estado": "PENDIENTE",
                 "nueva_pass": ""
             }
+            self.solicitudes = self._cargar_solicitudes()
             self.solicitudes.insert(0, nueva_sol)
             self.guardar_solicitudes()
             return True
@@ -177,6 +208,7 @@ class GestorSistemaFV:
 
     def registrar_cotizacion(self, reg):
         try:
+            self.historial = self._cargar_historial()
             self.historial.insert(0, reg)
             with open(self.ruta_historial, 'w', encoding='utf-8') as f: json.dump(self.historial, f, indent=4, ensure_ascii=False)
         except:
@@ -225,6 +257,7 @@ class GestorSistemaFV:
 
     def registrar_acceso(self, usuario: str, rol: str):
         try:
+            self.auditoria = self._cargar_auditoria()
             self.auditoria.insert(0, {"fecha_hora": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "usuario": usuario, "rol": rol})
             with open(self.ruta_auditoria, 'w', encoding='utf-8') as f: json.dump(self.auditoria, f, indent=4)
         except:
@@ -250,7 +283,7 @@ class GestorSistemaFV:
     def actualizar_registro(self, cat, item_id, nuevos_datos):
         self.datos = self._cargar_equipos()
         for idx, item in enumerate(self.datos.get(cat, [])):
-            if item['id'].upper() == item_id.upper():
+            if str(item.get('id', '')).upper() == item_id.upper():
                 self.datos[cat][idx] = nuevos_datos
                 self.guardar_equipos()
                 return True
@@ -258,7 +291,7 @@ class GestorSistemaFV:
         
     def eliminar_registro(self, cat, item_id):
         self.datos = self._cargar_equipos()
-        self.datos[cat] = [x for x in self.datos.get(cat, []) if x['id'].upper() != item_id.upper()]
+        self.datos[cat] = [x for x in self.datos.get(cat, []) if str(x.get('id', '')).upper() != item_id.upper()]
         self.guardar_equipos()
 
 @st.cache_resource
@@ -275,9 +308,14 @@ class MotorCalculoFV:
     def evaluar_mejor_panel(prioridad: str):
         evaluados = []
         for p in db.obtener_paneles():
-            if prioridad == 'Espacio Reducido': pt = (p.get('eficiencia_pct', 20) * 2) + (p.get('potencia_w', 1) / max(0.1, p.get('area_m2', 1)))
-            elif prioridad == 'Economía': pt = (p.get('potencia_w', 1) / max(1, p.get('precio_mxn', 1))) * 1000
-            else: pt = p.get('eficiencia_pct', 20)
+            ef = float(p.get('eficiencia_pct') or 20.0)
+            pot = float(p.get('potencia_w') or 1.0)
+            area = float(p.get('area_m2') or 1.0)
+            precio = float(p.get('precio_mxn') or 1.0)
+            
+            if prioridad == 'Espacio Reducido': pt = (ef * 2.0) + (pot / max(0.1, area))
+            elif prioridad == 'Economía': pt = (pot / max(1.0, precio)) * 1000.0
+            else: pt = ef
             evaluados.append({'panel': p, 'puntaje': pt})
         return sorted(evaluados, key=lambda x: x['puntaje'], reverse=True)
 
@@ -285,9 +323,14 @@ class MotorCalculoFV:
     def evaluar_mejor_inversor(prioridad: str):
         evaluados = []
         for inv in db.obtener_inversores():
-            if prioridad == 'Máxima Eficiencia': pt = inv.get('eficiencia_pct', 97) * 10
-            elif prioridad == 'Economía': pt = (inv.get('potencia_ac_kw', 1) / max(1, inv.get('precio_mxn', 1))) * 10000
-            else: pt = inv.get('eficiencia_pct', 97) + (inv.get('num_mppt', 2) * 2)
+            ef = float(inv.get('eficiencia_pct') or 97.0)
+            pot = float(inv.get('potencia_ac_kw') or 1.0)
+            precio = float(inv.get('precio_mxn') or 1.0)
+            mppt = float(inv.get('num_mppt') or 2)
+            
+            if prioridad == 'Máxima Eficiencia': pt = ef * 10.0
+            elif prioridad == 'Economía': pt = (pot / max(1.0, precio)) * 10000.0
+            else: pt = ef + (mppt * 2.0)
             evaluados.append({'inversor': inv, 'puntaje': pt})
         return sorted(evaluados, key=lambda x: x['puntaje'], reverse=True)
 
@@ -295,10 +338,14 @@ class MotorCalculoFV:
     def evaluar_mejor_bateria(prioridad: str):
         evaluados = []
         for b in db.obtener_baterias():
-            ciclos = b.get('ciclos_vida', 1000)
-            kwh_util = b.get('energia_kwh', 1) * (b.get('dod_recomendado_pct', 90) / 100.0)
+            ciclos = float(b.get('ciclos_vida') or 1000)
+            e_kwh = float(b.get('energia_kwh') or 1.0)
+            dod = float(b.get('dod_recomendado_pct') or 90.0) / 100.0
+            precio = float(b.get('precio_mxn') or 1.0)
+            kwh_util = e_kwh * dod
+            
             if prioridad == 'Mayor Vida Útil': pt = ciclos
-            elif prioridad == 'Economía': pt = (kwh_util / max(1, b.get('precio_mxn', 1))) * 100000
+            elif prioridad == 'Economía': pt = (kwh_util / max(1.0, precio)) * 100000.0
             else: pt = kwh_util 
             evaluados.append({'bateria': b, 'puntaje': pt})
         return sorted(evaluados, key=lambda x: x['puntaje'], reverse=True)
@@ -308,33 +355,36 @@ class MotorCalculoFV:
         panel = next((p for p in db.obtener_paneles() if p["id"] == pid), None)
         inv = next((i for i in db.obtener_inversores() if i["id"] == iid), None)
         
+        if not panel or not inv:
+            raise ValueError("No se encontró la configuración de Panel o Inversor seleccionada.")
+
         cons_diario = cons_bim / 60.0
         pot_req = (cons_diario / 0.80) / max(0.1, hsp)
-        n_pan = max(1, math.ceil((pot_req * 1000) / max(1, panel.get("potencia_w", 1))))
+        n_pan = max(1, math.ceil((pot_req * 1000) / max(1.0, float(panel.get("potencia_w", 1)))))
         
         ns = max(1, min(10, n_pan)) 
         np_arr = max(1, math.ceil(n_pan / ns))
         n_pan_real = ns * np_arr
-        pot_real = (n_pan_real * panel.get("potencia_w", 0)) / 1000.0
+        pot_real = (n_pan_real * float(panel.get("potencia_w", 0))) / 1000.0
 
-        costo_baterias_mxn, n_bat, bobj = 0, 0, None
+        costo_baterias_mxn, n_bat, bobj = 0.0, 0, None
         if modo_operacion != 'Interconectado (CFE)' and bid:
             bobj = next((b for b in db.obtener_baterias() if b["id"] == bid), None)
             if bobj:
                 e_req = cons_diario * (horas_respaldo / 24.0)
-                energia_util = bobj.get("energia_kwh", 1) * (bobj.get("dod_recomendado_pct", 90) / 100.0)
+                energia_util = float(bobj.get("energia_kwh", 1)) * (float(bobj.get("dod_recomendado_pct", 90)) / 100.0)
                 n_bat = math.ceil(e_req / max(0.1, energia_util))
-                costo_baterias_mxn = n_bat * bobj.get("precio_mxn", 0)
+                costo_baterias_mxn = n_bat * float(bobj.get("precio_mxn", 0))
 
-        costo_directo = (n_pan_real * panel.get("precio_mxn", 0)) + inv.get("precio_mxn", 0) + costo_baterias_mxn + extras_mxn
-        precio_venta = costo_directo * (1.0 + (max(0.0, min(100.0, ganancia_pct)) / 100.0))
-        ahorro_anual = pot_real * max(0.1, hsp) * 0.80 * 365 * costo
+        costo_directo = (n_pan_real * float(panel.get("precio_mxn", 0))) + float(inv.get("precio_mxn", 0)) + costo_baterias_mxn + float(extras_mxn)
+        precio_venta = costo_directo * (1.0 + (max(0.0, min(100.0, float(ganancia_pct))) / 100.0))
+        ahorro_anual = pot_real * max(0.1, float(hsp)) * 0.80 * 365.0 * float(costo)
         
         return {
             'panel': panel, 'inversor': inv, 'n_pan': n_pan_real, 'ns': ns, 'np': np_arr,
             'bateria': bobj, 'n_bat': n_bat, 'costo_directo': costo_directo, 
             'precio_venta': precio_venta, 'ahorro_anual': ahorro_anual, 
-            'roi': precio_venta / ahorro_anual if ahorro_anual > 0 else 0,
+            'roi': precio_venta / ahorro_anual if ahorro_anual > 0 else 0.0,
             'ganancia_pct': ganancia_pct
         }
 
@@ -358,13 +408,14 @@ class GeneradorReportes:
         story.append(Paragraph("<b>1. Equipos y Modelos a Instalar</b>", styles['Heading2']))
         story.append(Spacer(1, 5))
 
-        marca_bat = f"{datos['bateria'].get('marca', '')} {datos['bateria'].get('modelo', '')}" if datos['bateria'] else 'N/A'
+        bat_info = datos.get('bateria')
+        marca_bat = f"{bat_info.get('marca', '')} {bat_info.get('modelo', '')}" if isinstance(bat_info, dict) else 'N/A'
 
         t_equipos_data = [
             ["Categoría", "Marca y Modelo Seleccionado", "Cantidad"],
             ["Paneles Solares", f"{datos['panel'].get('marca', '')} {datos['panel'].get('modelo', '')} ({datos['panel'].get('potencia_w', 0)}W)", f"{datos['n_pan']} unidades"],
             ["Inversor FV", f"{datos['inversor'].get('marca', '')} {datos['inversor'].get('modelo', '')} ({datos['inversor'].get('potencia_ac_kw', 0)} kW)", "1 unidad"],
-            ["Banco de Baterías", marca_bat, f"{datos['n_bat']} unidades" if datos['bateria'] else "No incluye"]
+            ["Banco de Baterías", marca_bat, f"{datos['n_bat']} unidades" if isinstance(bat_info, dict) else "No incluye"]
         ]
 
         t_equipos = Table(t_equipos_data, colWidths=[1.8*inch, 4.0*inch, 1.6*inch])
@@ -443,13 +494,13 @@ url_user = str(params.get("user", "")).strip()
 url_token = str(params.get("token", "")).strip()
 
 if not st.session_state.logged_in and url_user and url_token and url_token not in ["False", "None", ""]:
-    db.usuarios = db._cargar_usuarios()
-    if url_user in db.usuarios and db.usuarios[url_user].get("activo", True):
-        active_sessions = db.usuarios[url_user].get("active_sessions", [])
+    usrs_dict = db.cargar_usuarios()
+    if url_user in usrs_dict and usrs_dict[url_user].get("activo", True):
+        active_sessions = usrs_dict[url_user].get("active_sessions", [])
         if url_token in active_sessions:
             st.session_state.logged_in = True
             st.session_state.usuario = url_user
-            st.session_state.rol = db.usuarios[url_user].get("rol", "usuario")
+            st.session_state.rol = usrs_dict[url_user].get("rol", "usuario")
             st.session_state.session_token = url_token
 
 if 'rec_panel_id' not in st.session_state: st.session_state.rec_panel_id = None
@@ -467,17 +518,17 @@ if not st.session_state.logged_in:
             submit_btn = st.form_submit_button("🔑 Iniciar Sesión")
             
             if submit_btn:
-                db.usuarios = db._cargar_usuarios()
+                usrs_dict = db.cargar_usuarios()
                 usr = user_input.strip()
                 pwd = pass_input.strip()
-                if usr in db.usuarios:
-                    if not db.usuarios[usr].get("activo", True):
+                if usr in usrs_dict:
+                    if not usrs_dict[usr].get("activo", True):
                         st.error("❌ Cuenta inhabilitada por el administrador.")
-                    elif db.usuarios[usr]["pass"] == pwd:
+                    elif usrs_dict[usr]["pass"] == pwd:
                         token = db.login_usuario(usr)
                         st.session_state.logged_in = True
                         st.session_state.usuario = usr
-                        st.session_state.rol = db.usuarios[usr].get("rol", "usuario")
+                        st.session_state.rol = usrs_dict[usr].get("rol", "usuario")
                         st.session_state.session_token = token
                         
                         st.query_params["user"] = usr
@@ -498,11 +549,11 @@ if not st.session_state.logged_in:
                 btn_env_reset = st.form_submit_button("📩 Enviar Solicitud al Administrador")
                 
                 if btn_env_reset:
-                    db.usuarios = db._cargar_usuarios()
+                    usrs_dict = db.cargar_usuarios()
                     if not u_reset or not tel_reset:
                         st.warning("⚠️ Completa tu usuario y número de celular.")
-                    elif u_reset in db.usuarios:
-                        tel_guardado = str(db.usuarios[u_reset].get("telefono", "")).strip()
+                    elif u_reset in usrs_dict:
+                        tel_guardado = str(usrs_dict[u_reset].get("telefono", "")).strip()
                         if tel_guardado == tel_reset or tel_reset in ["5500000000", "5511111111", "5522222222"]:
                             exito = db.registrar_solicitud_reset(u_reset, tel_reset)
                             if exito:
@@ -517,8 +568,8 @@ else:
     usuario_actual = st.session_state.usuario
     rol_usuario = st.session_state.rol
     
-    db.usuarios = db._cargar_usuarios()
-    usr_info = db.usuarios.get(usuario_actual, {})
+    usrs_dict = db.cargar_usuarios()
+    usr_info = usrs_dict.get(usuario_actual, {})
     active_tokens = usr_info.get("active_sessions", []) if isinstance(usr_info, dict) else []
     cuenta_activa = usr_info.get("activo", True) if isinstance(usr_info, dict) else True
 
@@ -553,7 +604,7 @@ else:
     # SIDEBAR: Muestra únicamente el Nombre de Usuario (Sin etiqueta de Rol)
     st.sidebar.markdown(f"### ☀️ CECyT 7\n**Usuario:** {usuario_actual.upper()}")
     
-    # AUTOSERVICIO DE CAMBIO DE CONTRASEÑA PARA CUALQUIER USUARIO (LIMPIEZA AUTOMÁTICA AL GUARDAR)
+    # AUTOSERVICIO DE CAMBIO DE CONTRASEÑA PARA CUALQUIER USUARIO
     with st.sidebar.expander("🔑 Cambiar mi Contraseña"):
         with st.form("form_autoservicio_pass", clear_on_submit=True):
             pass_nueva_mi = st.text_input("Nueva Contraseña", type="password")
@@ -643,13 +694,12 @@ else:
 
             costo_kwh = st.number_input("Costo por kWh (MXN)", value=3.50)
             
-            db.usuarios = db._cargar_usuarios()
-            usr_data_fresco = db.usuarios.get(usuario_actual, {})
+            usr_data_fresco = db.cargar_usuarios().get(usuario_actual, {})
             
             es_socio_o_admin = rol_usuario in ["admin", "admin_tec"]
             puede_editar_cliente = (rol_usuario == "usuario" and usr_data_fresco.get("ver_ganancia", False))
             
-            # SISTEMA DE CONTROL DE GANANCIA POR USUARIO Y ESTADO DE ACTIVACIÓN
+            # CONTROL DE GANANCIA POR USUARIO Y ESTADO DE ACTIVACIÓN
             if es_socio_o_admin or puede_editar_cliente:
                 activar_ganancia = st.toggle("Activar / Desactivar Ganancia Comercial", value=usr_data_fresco.get("aplicar_ganancia", True))
                 if activar_ganancia:
@@ -659,7 +709,6 @@ else:
                     ganancia_pct = 0.0
                     st.warning("⚠️ Ganancia desactivada (0.0%). Se cotizará a costo directo.")
             else:
-                # CLIENTE QUE NO TIENE PERMISO DE MODIFICAR SU GANANCIA
                 esta_activa = usr_data_fresco.get("aplicar_ganancia", True)
                 if esta_activa:
                     ganancia_pct = float(usr_data_fresco.get('ganancia_pct', 25.0))
@@ -838,9 +887,9 @@ else:
     if indice_hist is not None and len(tabs) > indice_hist:
         with tabs[indice_hist]:
             st.header("📜 Historial de Cotizaciones")
-            db.historial = db._cargar_historial()
-            if db.historial:
-                st.dataframe(pd.DataFrame(db.historial), use_container_width=True)
+            historial_datos = db.cargar_historial()
+            if historial_datos:
+                st.dataframe(pd.DataFrame(historial_datos), use_container_width=True)
             else:
                 st.info("No hay cotizaciones registradas todavía.")
 
@@ -851,21 +900,19 @@ else:
             st.header("👥 Gestión Integral de Ganancias de Usuarios")
             st.markdown("Permite consultar y editar interactivamente las ganancias y permisos (**0.0% a 100.0%**). Puedes modificar los datos directamente en la tabla o mediante las casillas inferiores.")
 
-            db.usuarios = db._cargar_usuarios()
+            usrs_dict = db.cargar_usuarios()
 
-            # FILTRADO DE SEGURIDAD: Los socios (admin_tec) NO pueden ver ni modificar los datos del Admin Principal
             if rol_usuario == "admin":
-                usrs_visibles = list(db.usuarios.keys())
+                usrs_visibles = list(usrs_dict.keys())
             else:
-                usrs_visibles = [u for u, d in db.usuarios.items() if d.get('rol') != 'admin']
+                usrs_visibles = [u for u, d in usrs_dict.items() if d.get('rol') != 'admin']
 
-            # TABLA INTERACTIVA (EDICIÓN DIRECTA DESDE LA TABLA)
             st.subheader("📋 Resumen y Edición Directa de Ganancias")
             st.caption("💡 Haz clic directamente en las casillas de la tabla para cambiar 'Permiso Edición' o 'Ganancia Activa', edita el porcentaje y presiona 'Guardar Cambios de la Tabla'.")
 
             filas_tabla = []
             for u in usrs_visibles:
-                d = db.usuarios[u]
+                d = usrs_dict[u]
                 filas_tabla.append({
                     "Usuario": u,
                     "% Ganancia": float(d.get("ganancia_pct", 25.0)),
@@ -892,7 +939,6 @@ else:
                 for idx, row in df_editado.iterrows():
                     u_target = row["Usuario"]
                     if u_target in db.usuarios:
-                        # Bloqueo estricto para evitar que un socio modifique al admin
                         if u_target == "admin" and rol_usuario != "admin":
                             continue
                         db.usuarios[u_target]["ganancia_pct"] = float(row["% Ganancia"])
@@ -908,7 +954,7 @@ else:
             usr_seleccionado = st.selectbox("Seleccionar Cuenta a Modificar", usrs_visibles)
 
             if usr_seleccionado:
-                u_datos = db.usuarios[usr_seleccionado]
+                u_datos = usrs_dict[usr_seleccionado]
                 
                 col_g1, col_g2, col_g3 = st.columns(3)
                 
@@ -939,16 +985,15 @@ else:
                         st.success(f"✅ ¡Parámetros de '{usr_seleccionado}' actualizados correctamente! (Ganancia: {nuevo_pct_val}%, Estado: {'ACTIVA' if nuevo_aplicar else 'DESACTIVADA'}).")
                         st.rerun()
 
-    # --- PESTAÑA 6: ADMIN PRINCIPAL & AUTORREFRESCO NATIVO (EXCLUSIVA PARA ADMIN) ---
+    # --- PESTAÑA 6: ADMIN PRINCIPAL ---
     if rol_usuario == "admin" and len(tabs) >= 6:
         with tabs[5]:
             st.header("🛡️ Panel de Administración Principal")
             
-            # SECCIÓN: NOTIFICACIONES DE RESTABLECIMIENTO DE CONTRASEÑA
             st.subheader("🔔 Notificaciones y Solicitudes de Restablecimiento")
-            db.solicitudes = db._cargar_solicitudes()
+            solicitudes_list = db.cargar_solicitudes()
             
-            sols_pendientes = [s for s in db.solicitudes if s.get("estado") == "PENDIENTE"]
+            sols_pendientes = [s for s in solicitudes_list if s.get("estado") == "PENDIENTE"]
             
             if sols_pendientes:
                 st.warning(f"⚠️ Tienes {len(sols_pendientes)} solicitud(es) pendiente(s) de restablecimiento de contraseña.")
@@ -965,7 +1010,8 @@ else:
                                     st.warning("⚠️ Introduce la nueva contraseña.")
                                 else:
                                     u_target = s['usuario']
-                                    if u_target in db.usuarios:
+                                    usrs = db.cargar_usuarios()
+                                    if u_target in usrs:
                                         db.usuarios[u_target]["pass"] = n_pass
                                         db.guardar_usuarios()
                                     
@@ -985,17 +1031,17 @@ else:
             with col_ref1:
                 st.subheader("👥 Monitoreo de Usuarios en Tiempo Real")
             with col_ref2:
-                auto_refresh = st.toggle("⏱️ Activar Auto-Refresco (cada 1 min)")
-                st.caption("⚠️ Permite trabajar cómodamente en formularios sin interrupciones repentinas.")
+                auto_refresh = st.toggle("⏱️ Activar Auto-Refresco")
+                st.caption("⚠️ Permite monitorear el estado activo de los usuarios.")
 
             if st.button("🔄 Actualizar Monitoreo Ahora"):
-                db.usuarios = db._cargar_usuarios()
+                db.cargar_usuarios()
                 st.rerun()
 
-            db.usuarios = db._cargar_usuarios()
+            usrs_dict = db.cargar_usuarios()
             
             filas_html = ""
-            for u, d in db.usuarios.items():
+            for u, d in usrs_dict.items():
                 sessions = d.get('active_sessions', []) if isinstance(d, dict) else []
                 num_sesiones = len(sessions)
                 is_activo = d.get('activo', True) if isinstance(d, dict) else True
@@ -1057,10 +1103,10 @@ else:
                 btn_crear_usr = st.form_submit_button("👤 Registrar Nuevo Usuario")
                 
                 if btn_crear_usr:
-                    db.usuarios = db._cargar_usuarios()
+                    usrs = db.cargar_usuarios()
                     if not nuevo_usr_id or not nuevo_usr_pass:
                         st.warning("⚠️ Debes rellenar el nombre de usuario y la contraseña.")
-                    elif nuevo_usr_id in db.usuarios:
+                    elif nuevo_usr_id in usrs:
                         st.error(f"❌ El nombre de usuario '{nuevo_usr_id}' ya existe. Debes usar un nombre de usuario único.")
                     else:
                         if "Socio" in tipo_rol_label:
@@ -1094,29 +1140,28 @@ else:
             
             pass_admin_check = st.text_input("Introduce tu contraseña de Administrador para revelar claves", type="password")
             if st.button("👁️ Revelar Credenciales"):
-                db.usuarios = db._cargar_usuarios()
-                if pass_admin_check == db.usuarios["admin"]["pass"]:
+                usrs = db.cargar_usuarios()
+                if pass_admin_check == usrs.get("admin", {}).get("pass"):
                     st.success("✅ Autenticación correcta:")
-                    for u, d in db.usuarios.items():
-                        st.code(f"Usuario: {u} | Teléfono: {d.get('telefono', 'N/A')} | Contraseña Actual: {d['pass']}")
+                    for u, d in usrs.items():
+                        st.code(f"Usuario: {u} | Teléfono: {d.get('telefono', 'N/A')} | Contraseña Actual: {d.get('pass')}")
                 else:
                     st.error("❌ Contraseña de Administrador incorrecta.")
 
             st.markdown("---")
-            # === SECCIÓN DE GESTIÓN DE CUENTAS: BLOQUEOS, CONTRASEÑAS Y CAMBIO DE ROL ===
             st.subheader("✏️ Gestión de Cuentas (Bajas, Cambios de Rol y Contraseñas)")
-            lista_usrs = [u for u in db.usuarios.keys() if u != 'admin']
+            usrs = db.cargar_usuarios()
+            lista_usrs = [u for u in usrs.keys() if u != 'admin']
             target_usr = st.selectbox("Seleccionar Cuenta (El Administrador está protegido)", lista_usrs if lista_usrs else ["Sin usuarios"])
             
             if target_usr and target_usr != "Sin usuarios":
                 col_g1, col_g2, col_g3 = st.columns(3)
                 
-                # Columna 1: Estado / Bloqueo
                 with col_g1:
                     st.markdown("**Estado de la cuenta**")
                     if target_usr == "admin":
                         st.error("🚫 Cuenta protegida.")
-                    elif db.usuarios[target_usr].get("activo", True):
+                    elif usrs[target_usr].get("activo", True):
                         if st.button("🔴 Bloquear Acceso", type="primary"):
                             db.usuarios[target_usr]["activo"] = False
                             db.usuarios[target_usr]["active_sessions"] = []
@@ -1131,7 +1176,6 @@ else:
                             st.success(f"Cuenta '{target_usr}' activada.")
                             st.rerun()
 
-                # Columna 2: Cambio de Contraseña por Admin (LIMPIEZA AUTOMÁTICA AL GUARDAR)
                 with col_g2:
                     st.markdown("**Cambiar Contraseña**")
                     with st.form(f"form_change_pass_{target_usr}", clear_on_submit=True):
@@ -1143,10 +1187,9 @@ else:
                                 db.guardar_usuarios()
                                 st.success("✅ Contraseña actualizada.")
 
-                # Columna 3: Cambio de Rol (EXCLUSIVO PARA EL ADMINISTRADOR PRINCIPAL)
                 with col_g3:
                     st.markdown("**Cambiar Rol de Usuario**")
-                    rol_actual = db.usuarios[target_usr].get("rol", "usuario")
+                    rol_actual = usrs[target_usr].get("rol", "usuario")
                     rol_idx_def = 1 if rol_actual == "admin_tec" else 0
                     
                     nuevo_rol_sel = st.selectbox(
@@ -1173,5 +1216,5 @@ else:
                             st.info("El usuario ya tiene ese rol asignado.")
 
             if auto_refresh:
-                time.sleep(60)
+                time.sleep(15)
                 st.rerun()
