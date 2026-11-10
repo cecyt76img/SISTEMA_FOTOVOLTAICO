@@ -1,6 +1,6 @@
 # ==============================================================================
 # PROYECTO DE TITULACIÓN TÉCNICA - CECYT 7 "CUAUHTÉMOC" (IPN)
-# Sistema Integral FV - Con Notificaciones de Restablecimiento y Limpieza Automática
+# Sistema Integral FV - Con Notificaciones, Esquemas Eléctricos y Gráficas ROI
 # ==============================================================================
 
 import os
@@ -136,7 +136,6 @@ class GestorSistemaFV:
             with open(self.ruta_solicitudes, 'r', encoding='utf-8') as f: return json.load(f)
         except: return []
 
-    # Métodos Públicos Directos
     def cargar_usuarios(self):
         self.usuarios = self._cargar_usuarios()
         return self.usuarios
@@ -161,7 +160,6 @@ class GestorSistemaFV:
     def obtener_usuarios(self): return self.cargar_usuarios()
     def obtener_historial(self): return self.cargar_historial()
 
-    # Enrutamiento dinámico para prevenir AttributeError en cualquier variante de llamada
     def __getattr__(self, name):
         if name in ['cargar_usuarios', '_cargar_usuarios', 'obtener_usuarios']:
             return self.cargar_usuarios
@@ -309,7 +307,6 @@ def init_db():
 
 db = init_db()
 
-# VERIFICACIÓN Y LIMPIEZA DE CACHÉ OBSOLETA DE STREAMLIT CLOUD
 if not hasattr(db, 'cargar_usuarios') or not hasattr(db, '_cargar_solicitudes'):
     try:
         st.cache_resource.clear()
@@ -317,7 +314,6 @@ if not hasattr(db, 'cargar_usuarios') or not hasattr(db, '_cargar_solicitudes'):
         pass
     db = GestorSistemaFV()
 
-# WRAPPERS DE ACCESO SEGURO
 def safe_cargar_usuarios():
     try:
         if hasattr(db, 'cargar_usuarios'): return db.cargar_usuarios()
@@ -343,7 +339,7 @@ def safe_cargar_historial():
         return []
 
 # ==============================================================================
-# 2. MOTOR DE CÁLCULO E INGENIERÍA
+# 2. MOTOR DE CÁLCULO E INGENIERÍA Y GENERACIÓN DE DIAGRAMAS
 # ==============================================================================
 class MotorCalculoFV:
     @staticmethod
@@ -422,16 +418,84 @@ class MotorCalculoFV:
         precio_venta = costo_directo * (1.0 + (max(0.0, min(100.0, float(ganancia_pct))) / 100.0))
         ahorro_anual = pot_real * max(0.1, float(hsp)) * 0.80 * 365.0 * float(costo)
         
+        tipo_conexion = "Serie" if np_arr == 1 and ns > 1 else ("Paralelo" if ns == 1 and np_arr > 1 else "Mixta (Serie-Paralelo)")
+
         return {
             'panel': panel, 'inversor': inv, 'n_pan': n_pan_real, 'ns': ns, 'np': np_arr,
+            'tipo_conexion': tipo_conexion,
             'bateria': bobj, 'n_bat': n_bat, 'costo_directo': costo_directo, 
             'precio_venta': precio_venta, 'ahorro_anual': ahorro_anual, 
             'roi': precio_venta / ahorro_anual if ahorro_anual > 0 else 0.0,
             'ganancia_pct': ganancia_pct
         }
 
+    @staticmethod
+    def generar_grafica_roi(precio_venta, ahorro_anual, roi_anos):
+        fig, ax = plt.subplots(figsize=(7, 3.5), facecolor='#0f172a')
+        ax.set_facecolor('#1e293b')
+        
+        max_anos = int(math.ceil(max(15, roi_anos + 5)))
+        anos = np.linspace(0, max_anos, 100)
+        flujo = -precio_venta + (ahorro_anual * anos)
+        
+        ax.plot(anos, flujo, color='#38bdf8', linewidth=2.5, label='Flujo Netos Acumulados')
+        ax.axhline(0, color='#94a3b8', linestyle='--', linewidth=1.2, label='Punto de Equilibrio ($0 MXN)')
+        
+        if 0 < roi_anos <= max_anos:
+            ax.axvline(roi_anos, color='#ef4444', linestyle=':', linewidth=1.8, label=f'ROI Exacto: {roi_anos:.1f} Años')
+            ax.plot(roi_anos, 0, marker='o', markersize=8, color='#ef4444')
+            ax.annotate(f'Recuperación\n{roi_anos:.1f} Años', xy=(roi_anos, 0), xytext=(roi_anos + 1.0, precio_venta * 0.2),
+                        arrowprops=dict(facecolor='#ef4444', shrink=0.05, width=1.2, headwidth=6),
+                        color='#f8fafc', fontweight='bold', fontsize=9,
+                        bbox=dict(boxstyle="round,pad=0.3", fc="#0f172a", ec="#ef4444", lw=1))
+
+        ax.set_title('Gráfica de Tiempo de Recuperación de Inversión (ROI)', color='#f8fafc', fontsize=11, fontweight='bold', pad=10)
+        ax.set_xlabel('Tiempo (Años)', color='#94a3b8', fontsize=9)
+        ax.set_ylabel('Balance Financiero (MXN)', color='#94a3b8', fontsize=9)
+        ax.tick_params(colors='#94a3b8')
+        ax.grid(True, linestyle=':', alpha=0.3, color='#475569')
+        ax.legend(facecolor='#0f172a', edgecolor='#334155', labelcolor='#f8fafc', fontsize=8)
+        
+        ax.yaxis.set_major_formatter('${x:,.0f}')
+        plt.tight_layout()
+        return fig
+
+    @staticmethod
+    def generar_diagrama_conexion(ns, np_arr, tipo_conexion):
+        fig, ax = plt.subplots(figsize=(7, 2.8), facecolor='#0f172a')
+        ax.set_facecolor('#1e293b')
+        ax.axis('off')
+
+        ax.set_title(f'Diagrama Eléctrico del Arreglo: Conexión {tipo_conexion}\n({ns} Paneles en Serie x {np_arr} Rama(s) en Paralelo = {ns * np_arr} Totales)', 
+                     color='#38bdf8', fontsize=10, fontweight='bold', pad=12)
+
+        ns_vis = min(ns, 5)
+        np_vis = min(np_arr, 3)
+
+        for r in range(np_vis):
+            for c in range(ns_vis):
+                x = c * 1.3
+                y = (np_vis - 1 - r) * 0.75
+                rect = plt.Rectangle((x, y), 0.95, 0.45, facecolor='#0284c7', edgecolor='#38bdf8', lw=1.5)
+                ax.add_patch(rect)
+                ax.text(x + 0.475, y + 0.225, f'Panel {r*ns + c + 1}', color='#ffffff', fontsize=7, ha='center', va='center', fontweight='bold')
+                
+                if c < ns_vis - 1:
+                    ax.annotate('', xy=(x + 1.3, y + 0.225), xytext=(x + 0.95, y + 0.225),
+                                arrowprops=dict(arrowstyle="->", color="#f59e0b", lw=1.5))
+            
+            if ns > ns_vis:
+                ax.text(ns_vis * 1.3 - 0.2, (np_vis - 1 - r) * 0.75 + 0.225, '...', color='#f8fafc', fontsize=12, fontweight='bold')
+
+        ax.text(ns_vis * 1.3 + 0.2, (np_vis - 1) * 0.375, 'ENTRADA DC\n➡️ Inversor', color='#4ade80', fontsize=9, fontweight='bold', va='center')
+        
+        ax.set_xlim(-0.2, ns_vis * 1.3 + 1.4)
+        ax.set_ylim(-0.3, max(1.0, np_vis * 0.75 + 0.2))
+        plt.tight_layout()
+        return fig
+
 # ==============================================================================
-# 3. GENERADOR DE PDF PROFESIONAL (MODELOS, ROI Y SOLO PRECIO FINAL TOTAL)
+# 3. GENERADOR DE PDF PROFESIONAL CON GRÁFICAS Y ESQUEMAS
 # ==============================================================================
 class GeneradorReportes:
     @staticmethod
@@ -444,79 +508,102 @@ class GeneradorReportes:
         story.append(Paragraph(f"<b>MEMORIA TÉCNICA Y COTIZACIÓN FOTOVOLTAICA</b>", styles['Heading1']))
         story.append(Paragraph(f"<b>CECyT 7 'Cuauhtémoc' - IPN</b> | <b>Folio:</b> {folio_str}", styles['Heading3']))
         story.append(Paragraph(f"<b>Fecha de Emisión:</b> {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}", styles['Normal']))
-        story.append(Spacer(1, 15))
+        story.append(Spacer(1, 10))
 
-        # 1. MODELOS Y ESPECIFICACIÓN DE EQUIPOS
-        story.append(Paragraph("<b>1. Equipos y Modelos a Instalar</b>", styles['Heading2']))
+        # 1. ESPECIFICACIÓN DE EQUIPOS
+        story.append(Paragraph("<b>1. Equipos y Configuración Seleccionada</b>", styles['Heading2']))
         story.append(Spacer(1, 5))
 
         bat_info = datos.get('bateria')
         marca_bat = f"{bat_info.get('marca', '')} {bat_info.get('modelo', '')}" if isinstance(bat_info, dict) else 'N/A'
 
         t_equipos_data = [
-            ["Categoría", "Marca y Modelo Seleccionado", "Cantidad"],
+            ["Categoría", "Marca y Modelo Seleccionado", "Cantidad / Configuración"],
             ["Paneles Solares", f"{datos['panel'].get('marca', '')} {datos['panel'].get('modelo', '')} ({datos['panel'].get('potencia_w', 0)}W)", f"{datos['n_pan']} unidades"],
+            ["Arreglo Fotovoltaico", f"Conexión {datos['tipo_conexion']}", f"{datos['ns']} Serie x {datos['np']} Paralelo"],
             ["Inversor FV", f"{datos['inversor'].get('marca', '')} {datos['inversor'].get('modelo', '')} ({datos['inversor'].get('potencia_ac_kw', 0)} kW)", "1 unidad"],
             ["Banco de Baterías", marca_bat, f"{datos['n_bat']} unidades" if isinstance(bat_info, dict) else "No incluye"]
         ]
 
-        t_equipos = Table(t_equipos_data, colWidths=[1.8*inch, 4.0*inch, 1.6*inch])
+        t_equipos = Table(t_equipos_data, colWidths=[1.8*inch, 3.8*inch, 1.8*inch])
         t_equipos.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e293b')),
             ('TEXTCOLOR', (0,0), (-1,0), colors.white),
             ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
-            ('PADDING', (0,0), (-1,-1), 6)
+            ('PADDING', (0,0), (-1,-1), 5)
         ]))
         story.append(t_equipos)
-        story.append(Spacer(1, 15))
+        story.append(Spacer(1, 10))
 
-        # 2. ESQUEMA DE TIEMPO DE RECUPERACIÓN (ROI Y PROYECCIONES)
-        story.append(Paragraph("<b>2. Esquema de Retorno de Inversión (ROI) y Ahorros Proyectados</b>", styles['Heading2']))
-        story.append(Spacer(1, 5))
+        # 2. DIAGRAMA ELÉCTRICO DE CONEXIÓN
+        story.append(Paragraph("<b>2. Esquema Eléctrico de Conexión de Paneles</b>", styles['Heading2']))
+        story.append(Spacer(1, 4))
+        
+        fig_diag = MotorCalculoFV.generar_diagrama_conexion(datos['ns'], datos['np'], datos['tipo_conexion'])
+        buf_diag = io.BytesIO()
+        fig_diag.savefig(buf_diag, format='png', dpi=150, bbox_inches='tight')
+        buf_diag.seek(0)
+        plt.close(fig_diag)
+        story.append(RLImage(buf_diag, width=6.5*inch, height=2.4*inch))
+        story.append(Spacer(1, 10))
+
+        # 3. GRÁFICA Y TABLA DE RETORNO DE INVERSIÓN (ROI)
+        story.append(Paragraph("<b>3. Tiempo de Recuperación de Inversión (ROI) y Ahorros Proyectados</b>", styles['Heading2']))
+        story.append(Spacer(1, 4))
+
+        fig_roi = MotorCalculoFV.generar_grafica_roi(datos['precio_venta'], datos['ahorro_anual'], datos['roi'])
+        buf_roi = io.BytesIO()
+        fig_roi.savefig(buf_roi, format='png', dpi=150, bbox_inches='tight')
+        buf_roi.seek(0)
+        plt.close(fig_roi)
+        story.append(RLImage(buf_roi, width=6.5*inch, height=3.0*inch))
+        story.append(Spacer(1, 8))
 
         ahorro_anual = datos['ahorro_anual']
-        roi_anos = datos['roi']
-        precio_total = datos['precio_venta']
-
         t_roi_data = [
             ["Concepto Financiero", "Proyección Estimada"],
-            ["Tiempo Estimado de Retorno de Inversión (ROI)", f"{roi_anos:.1f} Años"],
-            ["Ahorro Estimado Bimestral en Recibo CFE", f"${(ahorro_anual / 6.0):,.2f} MXN"],
-            ["Ahorro Estimado Anual", f"${ahorro_anual:,.2f} MXN / Año"],
-            ["Ahorro Acumulado Proyectado a 10 Años", f"${(ahorro_anual * 10):,.2f} MXN"],
-            ["Ahorro Acumulado Proyectado a 25 Años (Vida Útil)", f"${(ahorro_anual * 25):,.2f} MXN"]
+            ["Tiempo Estimado de Retorno de Inversión (ROI)", f"{datos['roi']:.1f} Años"],
+            ["Ahorro Estimado Bimestral en CFE", f"${(ahorro_anual / 6.0):,.2f} MXN"],
+            ["Ahorro Acumulado Proyectado a 25 Años", f"${(ahorro_anual * 25):,.2f} MXN"]
         ]
 
-        t_roi = Table(t_roi_data, colWidths=[4.4*inch, 3.0*inch])
+        t_roi = Table(t_roi_data, colWidths=[4.2*inch, 3.2*inch])
         t_roi.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#0f172a')),
             ('TEXTCOLOR', (0,0), (-1,0), colors.white),
             ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
-            ('BACKGROUND', (0,1), (-1,1), colors.HexColor('#dcfce7')),
-            ('TEXTCOLOR', (0,1), (-1,1), colors.HexColor('#14532d')),
-            ('FONTNAME', (0,1), (-1,1), 'Helvetica-Bold'),
-            ('PADDING', (0,0), (-1,-1), 6)
+            ('PADDING', (0,0), (-1,-1), 5)
         ]))
         story.append(t_roi)
-        story.append(Spacer(1, 15))
+        story.append(Spacer(1, 10))
 
-        # 3. PRECIO FINAL TOTAL
-        story.append(Paragraph("<b>3. Inversión Total Final</b>", styles['Heading2']))
+        # 4. DESGLOSE Y PRECIO FINAL TOTAL
+        story.append(Paragraph("<b>4. Desglose de Inversión Final Total</b>", styles['Heading2']))
         story.append(Spacer(1, 5))
 
+        costo_dir = datos['costo_directo']
+        ganancia_monto = datos['precio_venta'] - costo_dir
+        precio_total = datos['precio_venta']
+
         t_precio_data = [
-            ["INVERSIÓN TOTAL FINAL DEL SISTEMA (INSTALADO COMPLETO)", f"${precio_total:,.2f} MXN"]
+            ["Concepto de Cotización", "Monto en MXN"],
+            ["Costo Directo Base de Equipos e Instalación", f"${costo_dir:,.2f} MXN"],
+            [f"Margen Comercial Aplicado ({datos['ganancia_pct']}%)", f"${ganancia_monto:,.2f} MXN"],
+            ["INVERSIÓN TOTAL FINAL (INSTALADO)", f"${precio_total:,.2f} MXN"]
         ]
         t_precio = Table(t_precio_data, colWidths=[4.4*inch, 3.0*inch])
         t_precio.setStyle(TableStyle([
-            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#1e293b')),
-            ('TEXTCOLOR', (0,0), (-1,-1), colors.HexColor('#38bdf8')),
-            ('FONTNAME', (0,0), (-1,-1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0,0), (-1,-1), 11),
-            ('GRID', (0,0), (-1,-1), 1, colors.HexColor('#38bdf8')),
-            ('PADDING', (0,0), (-1,-1), 10)
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#1e293b')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+            ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#0f172a')),
+            ('TEXTCOLOR', (0,-1), (-1,-1), colors.HexColor('#38bdf8')),
+            ('FONTNAME', (0,-1), (-1,-1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0,-1), (-1,-1), 11),
+            ('PADDING', (0,0), (-1,-1), 7)
         ]))
         story.append(t_precio)
 
@@ -763,18 +850,54 @@ else:
             try:
                 res = MotorCalculoFV.dimensionar_sistema(cons_bim, hsp, pid, iid, costo_kwh, modo, bid, 4, ganancia_pct, 15000.0)
                 st.session_state.ultimo_calculo = res
-                
                 st.success("¡Cálculo realizado con éxito!")
-                st.markdown(f"""
-                <div style="background:#0f172a; color:#f8fafc; padding:20px; border-radius:10px; border: 1px solid #38bdf8;">
-                    <h3 style="color:#38bdf8;">📋 Resumen de Cotización</h3>
-                    <p><b>Paneles Solares Requeridos:</b> {res['n_pan']} piezas ({res['panel']['marca']} {res['panel']['modelo']})</p>
-                    <p><b>Banco de Baterías:</b> {res['n_bat']} uds</p>
-                    <p style="color:#4ade80; font-size:20px;"><b>Inversión Total:</b> ${res['precio_venta']:,.2f} MXN | <b>Retorno (ROI):</b> {res['roi']:.1f} años</p>
-                </div>
-                """, unsafe_allow_html=True)
             except Exception as e:
                 st.error(f"❌ Error en el cálculo: {e}")
+
+        if 'ultimo_calculo' in st.session_state:
+            res = st.session_state.ultimo_calculo
+            
+            st.markdown("---")
+            st.subheader("📋 Resumen de la Cotización")
+            
+            col_res1, col_res2 = st.columns(2)
+            with col_res1:
+                costo_dir = res['costo_directo']
+                ganancia_monto = res['precio_venta'] - costo_dir
+                
+                st.markdown(f"""
+                <div style="background:#1e293b; padding:18px; border-radius:10px; border:1px solid #38bdf8;">
+                    <h4 style="color:#38bdf8; margin-top:0;">💰 Desglose Financiero Final</h4>
+                    <p><b>Costo Directo Base:</b> ${costo_dir:,.2f} MXN</p>
+                    <p><b>Ganancia Comercial ({res['ganancia_pct']}%):</b> ${ganancia_monto:,.2f} MXN</p>
+                    <hr style="border-color:#334155;">
+                    <p style="color:#4ade80; font-size:22px; margin-bottom:0;"><b>Inversión Total Final:</b> ${res['precio_venta']:,.2f} MXN</p>
+                    <p style="color:#94a3b8; font-size:16px;"><b>Tiempo de Recuperación (ROI):</b> {res['roi']:.1f} Años</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            with col_res2:
+                st.markdown(f"""
+                <div style="background:#1e293b; padding:18px; border-radius:10px; border:1px solid #334155;">
+                    <h4 style="color:#38bdf8; margin-top:0;">⚡ Configuración de Equipos</h4>
+                    <p><b>Paneles Totales:</b> {res['n_pan']} uds ({res['panel']['marca']} {res['panel']['modelo']})</p>
+                    <p><b>Topología:</b> Conexión <b>{res['tipo_conexion']}</b> ({res['ns']} Serie x {res['np']} Paralelo)</p>
+                    <p><b>Inversor:</b> {res['inversor']['marca']} {res['inversor']['modelo']}</p>
+                    <p><b>Baterías:</b> {res['n_bat']} uds</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("---")
+            col_g1, col_g2 = st.columns(2)
+            with col_g1:
+                fig_diag_ui = MotorCalculoFV.generar_diagrama_conexion(res['ns'], res['np'], res['tipo_conexion'])
+                st.pyplot(fig_diag_ui)
+                plt.close(fig_diag_ui)
+            
+            with col_g2:
+                fig_roi_ui = MotorCalculoFV.generar_grafica_roi(res['precio_venta'], res['ahorro_anual'], res['roi'])
+                st.pyplot(fig_roi_ui)
+                plt.close(fig_roi_ui)
 
         if st.button("📄 Generar y Descargar PDF Oficial"):
             try:
