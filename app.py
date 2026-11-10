@@ -136,7 +136,7 @@ class GestorSistemaFV:
             with open(self.ruta_solicitudes, 'r', encoding='utf-8') as f: return json.load(f)
         except: return []
 
-    # Métodos Públicos Garantizados (Evitan AttributeError si se llaman sin guion bajo)
+    # Métodos Públicos Directos
     def cargar_usuarios(self):
         self.usuarios = self._cargar_usuarios()
         return self.usuarios
@@ -157,14 +157,23 @@ class GestorSistemaFV:
         self.auditoria = self._cargar_auditoria()
         return self.auditoria
 
-    def obtener_solicitudes(self):
-        return self.cargar_solicitudes()
+    def obtener_solicitudes(self): return self.cargar_solicitudes()
+    def obtener_usuarios(self): return self.cargar_usuarios()
+    def obtener_historial(self): return self.cargar_historial()
 
-    def obtener_usuarios(self):
-        return self.cargar_usuarios()
-
-    def obtener_historial(self):
-        return self.cargar_historial()
+    # Enrutamiento dinámico para prevenir AttributeError en cualquier variante de llamada
+    def __getattr__(self, name):
+        if name in ['cargar_usuarios', '_cargar_usuarios', 'obtener_usuarios']:
+            return self.cargar_usuarios
+        if name in ['cargar_solicitudes', '_cargar_solicitudes', 'obtener_solicitudes']:
+            return self.cargar_solicitudes
+        if name in ['cargar_historial', '_cargar_historial', 'obtener_historial']:
+            return self.cargar_historial
+        if name in ['cargar_equipos', '_cargar_equipos', 'obtener_equipos']:
+            return self.cargar_equipos
+        if name in ['cargar_auditoria', '_cargar_auditoria', 'obtener_auditoria']:
+            return self.cargar_auditoria
+        raise AttributeError(f"'{type(self).__name__}' no tiene el atributo o método '{name}'")
 
     def guardar_usuarios(self):
         try:
@@ -299,6 +308,39 @@ def init_db():
     return GestorSistemaFV()
 
 db = init_db()
+
+# VERIFICACIÓN Y LIMPIEZA DE CACHÉ OBSOLETA DE STREAMLIT CLOUD
+if not hasattr(db, 'cargar_usuarios') or not hasattr(db, '_cargar_solicitudes'):
+    try:
+        st.cache_resource.clear()
+    except Exception:
+        pass
+    db = GestorSistemaFV()
+
+# WRAPPERS DE ACCESO SEGURO
+def safe_cargar_usuarios():
+    try:
+        if hasattr(db, 'cargar_usuarios'): return db.cargar_usuarios()
+        elif hasattr(db, '_cargar_usuarios'): return db._cargar_usuarios()
+        return getattr(db, 'usuarios', {})
+    except Exception:
+        return {}
+
+def safe_cargar_solicitudes():
+    try:
+        if hasattr(db, 'cargar_solicitudes'): return db.cargar_solicitudes()
+        elif hasattr(db, '_cargar_solicitudes'): return db._cargar_solicitudes()
+        return getattr(db, 'solicitudes', [])
+    except Exception:
+        return []
+
+def safe_cargar_historial():
+    try:
+        if hasattr(db, 'cargar_historial'): return db.cargar_historial()
+        elif hasattr(db, '_cargar_historial'): return db._cargar_historial()
+        return getattr(db, 'historial', [])
+    except Exception:
+        return []
 
 # ==============================================================================
 # 2. MOTOR DE CÁLCULO E INGENIERÍA
@@ -494,7 +536,7 @@ url_user = str(params.get("user", "")).strip()
 url_token = str(params.get("token", "")).strip()
 
 if not st.session_state.logged_in and url_user and url_token and url_token not in ["False", "None", ""]:
-    usrs_dict = db.cargar_usuarios()
+    usrs_dict = safe_cargar_usuarios()
     if url_user in usrs_dict and usrs_dict[url_user].get("activo", True):
         active_sessions = usrs_dict[url_user].get("active_sessions", [])
         if url_token in active_sessions:
@@ -518,7 +560,7 @@ if not st.session_state.logged_in:
             submit_btn = st.form_submit_button("🔑 Iniciar Sesión")
             
             if submit_btn:
-                usrs_dict = db.cargar_usuarios()
+                usrs_dict = safe_cargar_usuarios()
                 usr = user_input.strip()
                 pwd = pass_input.strip()
                 if usr in usrs_dict:
@@ -549,7 +591,7 @@ if not st.session_state.logged_in:
                 btn_env_reset = st.form_submit_button("📩 Enviar Solicitud al Administrador")
                 
                 if btn_env_reset:
-                    usrs_dict = db.cargar_usuarios()
+                    usrs_dict = safe_cargar_usuarios()
                     if not u_reset or not tel_reset:
                         st.warning("⚠️ Completa tu usuario y número de celular.")
                     elif u_reset in usrs_dict:
@@ -568,7 +610,7 @@ else:
     usuario_actual = st.session_state.usuario
     rol_usuario = st.session_state.rol
     
-    usrs_dict = db.cargar_usuarios()
+    usrs_dict = safe_cargar_usuarios()
     usr_info = usrs_dict.get(usuario_actual, {})
     active_tokens = usr_info.get("active_sessions", []) if isinstance(usr_info, dict) else []
     cuenta_activa = usr_info.get("activo", True) if isinstance(usr_info, dict) else True
@@ -694,7 +736,7 @@ else:
 
             costo_kwh = st.number_input("Costo por kWh (MXN)", value=3.50)
             
-            usr_data_fresco = db.cargar_usuarios().get(usuario_actual, {})
+            usr_data_fresco = safe_cargar_usuarios().get(usuario_actual, {})
             
             es_socio_o_admin = rol_usuario in ["admin", "admin_tec"]
             puede_editar_cliente = (rol_usuario == "usuario" and usr_data_fresco.get("ver_ganancia", False))
@@ -887,7 +929,7 @@ else:
     if indice_hist is not None and len(tabs) > indice_hist:
         with tabs[indice_hist]:
             st.header("📜 Historial de Cotizaciones")
-            historial_datos = db.cargar_historial()
+            historial_datos = safe_cargar_historial()
             if historial_datos:
                 st.dataframe(pd.DataFrame(historial_datos), use_container_width=True)
             else:
@@ -900,7 +942,7 @@ else:
             st.header("👥 Gestión Integral de Ganancias de Usuarios")
             st.markdown("Permite consultar y editar interactivamente las ganancias y permisos (**0.0% a 100.0%**). Puedes modificar los datos directamente en la tabla o mediante las casillas inferiores.")
 
-            usrs_dict = db.cargar_usuarios()
+            usrs_dict = safe_cargar_usuarios()
 
             if rol_usuario == "admin":
                 usrs_visibles = list(usrs_dict.keys())
@@ -991,7 +1033,7 @@ else:
             st.header("🛡️ Panel de Administración Principal")
             
             st.subheader("🔔 Notificaciones y Solicitudes de Restablecimiento")
-            solicitudes_list = db.cargar_solicitudes()
+            solicitudes_list = safe_cargar_solicitudes()
             
             sols_pendientes = [s for s in solicitudes_list if s.get("estado") == "PENDIENTE"]
             
@@ -1010,7 +1052,7 @@ else:
                                     st.warning("⚠️ Introduce la nueva contraseña.")
                                 else:
                                     u_target = s['usuario']
-                                    usrs = db.cargar_usuarios()
+                                    usrs = safe_cargar_usuarios()
                                     if u_target in usrs:
                                         db.usuarios[u_target]["pass"] = n_pass
                                         db.guardar_usuarios()
@@ -1035,10 +1077,10 @@ else:
                 st.caption("⚠️ Permite monitorear el estado activo de los usuarios.")
 
             if st.button("🔄 Actualizar Monitoreo Ahora"):
-                db.cargar_usuarios()
+                safe_cargar_usuarios()
                 st.rerun()
 
-            usrs_dict = db.cargar_usuarios()
+            usrs_dict = safe_cargar_usuarios()
             
             filas_html = ""
             for u, d in usrs_dict.items():
@@ -1103,7 +1145,7 @@ else:
                 btn_crear_usr = st.form_submit_button("👤 Registrar Nuevo Usuario")
                 
                 if btn_crear_usr:
-                    usrs = db.cargar_usuarios()
+                    usrs = safe_cargar_usuarios()
                     if not nuevo_usr_id or not nuevo_usr_pass:
                         st.warning("⚠️ Debes rellenar el nombre de usuario y la contraseña.")
                     elif nuevo_usr_id in usrs:
@@ -1140,7 +1182,7 @@ else:
             
             pass_admin_check = st.text_input("Introduce tu contraseña de Administrador para revelar claves", type="password")
             if st.button("👁️ Revelar Credenciales"):
-                usrs = db.cargar_usuarios()
+                usrs = safe_cargar_usuarios()
                 if pass_admin_check == usrs.get("admin", {}).get("pass"):
                     st.success("✅ Autenticación correcta:")
                     for u, d in usrs.items():
@@ -1150,7 +1192,7 @@ else:
 
             st.markdown("---")
             st.subheader("✏️ Gestión de Cuentas (Bajas, Cambios de Rol y Contraseñas)")
-            usrs = db.cargar_usuarios()
+            usrs = safe_cargar_usuarios()
             lista_usrs = [u for u in usrs.keys() if u != 'admin']
             target_usr = st.selectbox("Seleccionar Cuenta (El Administrador está protegido)", lista_usrs if lista_usrs else ["Sin usuarios"])
             
